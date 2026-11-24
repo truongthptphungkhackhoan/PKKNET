@@ -46,10 +46,10 @@
 
             <!-- PHÂN KHU 1: QUÉT THẺ & GHI NHẬN LỖI (Dành cho Tổ viên, Tổ trưởng, Admin) -->
             <section id="scanner-section" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hidden">
-                <h3 class="font-bold text-lg text-blue-700 mb-3 border-b pb-2">1. Quét mã thẻ học sinh vi phạm</h3>
+                <h3 class="font-bold text-lg text-blue-700 mb-3 border-b pb-2">1. Quét mã thẻ hoặc chọn học sinh vi phạm</h3>
                 
                 <div class="grid md:grid-cols-2 gap-6">
-                    <!-- Cột Camera & Tìm mã -->
+                    <!-- Cột Camera, Nhập mã & Chọn Lớp/Tên -->
                     <div>
                         <div id="reader" class="w-full rounded-lg overflow-hidden border bg-black"></div>
                         <div class="mt-3 flex gap-2">
@@ -58,10 +58,22 @@
                         </div>
                         
                         <div class="mt-4 pt-3 border-t">
-                            <label class="text-xs font-semibold text-slate-500 uppercase">Hoặc nhập tay Mã HS (Test: HS1001, HS1002)</label>
+                            <label class="text-xs font-semibold text-slate-500 uppercase">Cách 1: Nhập tay Mã HS (Test: HS1001, HS1002)</label>
                             <div class="flex gap-2 mt-1">
                                 <input type="text" id="manual-code" placeholder="Nhập mã thẻ HS..." class="flex-1 border rounded-lg p-2 text-sm uppercase">
                                 <button onclick="lookupStudent(document.getElementById('manual-code').value)" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Tìm</button>
+                            </div>
+                        </div>
+
+                        <div class="mt-4 pt-3 border-t">
+                            <label class="text-xs font-semibold text-slate-500 uppercase">Cách 2: Chọn Lớp & Tên học sinh trong danh sách</label>
+                            <div class="grid grid-cols-5 gap-2 mt-1">
+                                <select id="select-class" onchange="onSelectClassChange()" class="col-span-2 border rounded-lg p-2 text-sm bg-white">
+                                    <option value="">-- Chọn lớp --</option>
+                                </select>
+                                <select id="select-student" onchange="onSelectStudentChange()" class="col-span-3 border rounded-lg p-2 text-sm bg-white" disabled>
+                                    <option value="">-- Chọn học sinh --</option>
+                                </select>
                             </div>
                         </div>
                     </div>
@@ -74,7 +86,7 @@
                             <p id="st-meta" class="text-sm text-slate-600"></p>
                         </div>
                         <div id="student-placeholder" class="mb-4 p-4 text-center text-slate-400 border border-dashed rounded-lg text-sm">
-                            Chưa quét được học sinh nào
+                            Chưa chọn hoặc quét được học sinh nào
                         </div>
 
                         <p class="font-semibold text-sm mb-2">Chọn lỗi vi phạm:</p>
@@ -288,6 +300,7 @@
         let html5QrCode = null;
         let latestHistoryData = null;
         let weeklyTrendChart = null;
+        let classStudentsCache = [];
 
         async function login() {
             const username = document.getElementById("username").value.trim();
@@ -331,10 +344,75 @@
             document.getElementById("admin-section").classList.toggle("hidden", role !== "admin");
             document.getElementById("btn-export").classList.toggle("hidden", !["totruong", "giamhieu", "admin"].includes(role));
 
+            await loadClasses();
             await loadViolationTypes();
             await loadRecords();
             await loadRankings();
             await loadUsers();
+        }
+
+        async function loadClasses() {
+            const res = await fetch("/api/classes");
+            const classes = await res.json();
+            const classSelect = document.getElementById("select-class");
+            if (!classSelect) return;
+
+            const prevClass = classSelect.value;
+            classSelect.innerHTML = `<option value="">-- Chọn lớp --</option>` +
+                classes.map(cls => `<option value="${cls}">${cls}</option>`).join("");
+
+            if (prevClass && classes.includes(prevClass)) {
+                classSelect.value = prevClass;
+                await onSelectClassChange(false);
+            } else {
+                const studentSelect = document.getElementById("select-student");
+                studentSelect.innerHTML = `<option value="">-- Chọn học sinh --</option>`;
+                studentSelect.disabled = true;
+            }
+        }
+
+        async function onSelectClassChange(autoPick = false) {
+            const className = document.getElementById("select-class").value;
+            const studentSelect = document.getElementById("select-student");
+            classStudentsCache = [];
+
+            if (!className) {
+                studentSelect.innerHTML = `<option value="">-- Chọn học sinh --</option>`;
+                studentSelect.disabled = true;
+                return;
+            }
+
+            const res = await fetch(`/api/students?class_name=${encodeURIComponent(className)}`);
+            const students = await res.json();
+            classStudentsCache = students;
+
+            studentSelect.innerHTML = `<option value="">-- Chọn học sinh (${students.length}) --</option>` +
+                students.map(st => `<option value="${st.student_code}">${st.full_name} (${st.student_code}${st.dob ? " - " + st.dob : ""})</option>`).join("");
+            studentSelect.disabled = students.length === 0;
+
+            if (autoPick && students.length > 0) {
+                studentSelect.value = students[0].student_code;
+                onSelectStudentChange();
+            }
+        }
+
+        function onSelectStudentChange() {
+            const code = document.getElementById("select-student").value;
+            if (!code) return;
+            const found = classStudentsCache.find(s => s.student_code === code);
+            if (found) {
+                displaySelectedStudent(found);
+            } else {
+                lookupStudent(code);
+            }
+        }
+
+        function displaySelectedStudent(student) {
+            currentStudent = student;
+            document.getElementById("student-placeholder").classList.add("hidden");
+            document.getElementById("student-card").classList.remove("hidden");
+            document.getElementById("st-name").innerText = `${currentStudent.full_name} (${currentStudent.student_code})`;
+            document.getElementById("st-meta").innerText = `Lớp: ${currentStudent.class_name} | Khối: ${currentStudent.grade} | NS: ${currentStudent.dob || "-"}`;
         }
 
         async function loadViolationTypes() {
@@ -417,20 +495,17 @@
 
         async function lookupStudent(code) {
             if (!code) return;
-            const res = await fetch(`/api/students/${code}`);
+            const res = await fetch(`/api/students/${encodeURIComponent(code.trim())}`);
             if (!res.ok) {
                 alert("Không tìm thấy mã học sinh: " + code);
                 return;
             }
-            currentStudent = await res.json();
-            document.getElementById("student-placeholder").classList.add("hidden");
-            document.getElementById("student-card").classList.remove("hidden");
-            document.getElementById("st-name").innerText = `${currentStudent.full_name} (${currentStudent.student_code})`;
-            document.getElementById("st-meta").innerText = `Lớp: ${currentStudent.class_name} | Khối: ${currentStudent.grade} | NS: ${currentStudent.dob}`;
+            const st = await res.json();
+            displaySelectedStudent(st);
         }
 
         async function submitRecord() {
-            if (!currentStudent) return alert("Vui lòng quét hoặc nhập mã học sinh trước!");
+            if (!currentStudent) return alert("Vui lòng quét mã, nhập mã hoặc chọn học sinh trước!");
             const checked = Array.from(document.querySelectorAll(".v-checkbox:checked")).map(cb => parseInt(cb.value));
             if (checked.length === 0) return alert("Vui lòng tích chọn ít nhất 1 lỗi vi phạm!");
 
@@ -448,6 +523,8 @@
                 alert("Đã ghi nhận vi phạm thành công!");
                 document.querySelectorAll(".v-checkbox").forEach(cb => cb.checked = false);
                 document.getElementById("record-note").value = "";
+                document.getElementById("manual-code").value = "";
+                document.getElementById("select-student").value = "";
                 currentStudent = null;
                 document.getElementById("student-card").classList.add("hidden");
                 document.getElementById("student-placeholder").classList.remove("hidden");
@@ -507,6 +584,7 @@
             const res = await fetch("/api/admin/import-students", { method: "POST", body: formData });
             const result = await res.json();
             alert(result.message);
+            await loadClasses();
             await loadRankings();
         }
 
