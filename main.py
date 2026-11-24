@@ -174,6 +174,32 @@ def login(req: LoginRequest):
     return dict(user)
 
 
+@app.get("/api/classes")
+def get_classes():
+    conn = get_db()
+    rows = conn.execute(
+        "SELECT DISTINCT class_name FROM students WHERE class_name IS NOT NULL AND TRIM(class_name) != '' ORDER BY class_name ASC"
+    ).fetchall()
+    conn.close()
+    return [r["class_name"] for r in rows]
+
+
+@app.get("/api/students")
+def get_students_by_class(class_name: Optional[str] = None):
+    conn = get_db()
+    if class_name:
+        rows = conn.execute(
+            "SELECT * FROM students WHERE class_name=? ORDER BY full_name ASC, student_code ASC",
+            (class_name.strip(),),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM students ORDER BY class_name ASC, full_name ASC"
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
 @app.get("/api/students/{code}")
 def get_student(code: str):
     conn = get_db()
