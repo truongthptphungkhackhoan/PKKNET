@@ -110,7 +110,7 @@ def init_db():
             violations_seed,
         )
 
-    # Tạo 3 học sinh mẫu để test quét mã ngay
+    # Tạo 3 học sinh mẫu để test ngay
     students_seed = [
         ("HS1001", "Lê Minh Khôi", "10A1", "10", "12/05/2010"),
         ("HS1002", "Phạm Thu Hà", "10A1", "10", "20/08/2010"),
@@ -185,17 +185,22 @@ def get_classes():
 
 
 @app.get("/api/students")
-def get_students_by_class(class_name: Optional[str] = None):
+def get_students(class_name: Optional[str] = None, q: Optional[str] = None):
     conn = get_db()
-    if class_name:
-        rows = conn.execute(
-            "SELECT * FROM students WHERE class_name=? ORDER BY full_name ASC, student_code ASC",
-            (class_name.strip(),),
-        ).fetchall()
-    else:
-        rows = conn.execute(
-            "SELECT * FROM students ORDER BY class_name ASC, full_name ASC"
-        ).fetchall()
+    sql = "SELECT * FROM students WHERE 1=1"
+    params = []
+
+    if class_name and class_name.strip():
+        sql += " AND class_name = ?"
+        params.append(class_name.strip())
+
+    if q and q.strip():
+        kw = f"%{q.strip()}%"
+        sql += " AND (full_name LIKE ? OR student_code LIKE ? OR class_name LIKE ?)"
+        params.extend([kw, kw, kw])
+
+    sql += " ORDER BY class_name ASC, full_name ASC, student_code ASC"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
