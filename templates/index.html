@@ -1,0 +1,803 @@
+<!DOCTYPE html>
+<html lang="vi">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Quản Lý Nề Nếp THPT</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+</head>
+<body class="bg-slate-100 min-h-screen font-sans text-slate-800">
+
+    <!-- MÀN HÌNH ĐĂNG NHẬP -->
+    <div id="login-screen" class="flex items-center justify-center min-h-screen p-4">
+        <div class="bg-white p-8 rounded-xl shadow-lg w-full max-w-md border-t-4 border-blue-600">
+            <h1 class="text-2xl font-bold text-center text-blue-700 mb-2">NỀ NẾP THPT</h1>
+            <p class="text-sm text-center text-slate-500 mb-6">Đăng nhập theo phân quyền công tác</p>
+            
+            <div class="space-y-4">
+                <div>
+                    <label class="block text-sm font-medium mb-1">Tài khoản</label>
+                    <input type="text" id="username" placeholder="VD: tovien1, totruong, giamhieu, admin" class="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <div>
+                    <label class="block text-sm font-medium mb-1">Mật khẩu (Mặc định: 123456)</label>
+                    <input type="password" id="password" value="123456" class="w-full border rounded-lg p-2.5 focus:ring-2 focus:ring-blue-500 outline-none">
+                </div>
+                <button onclick="login()" class="w-full bg-blue-600 hover:bg-blue-700 text-white font-semibold py-2.5 rounded-lg transition">Đăng nhập</button>
+            </div>
+            <p id="login-error" class="text-red-500 text-sm mt-3 text-center hidden"></p>
+        </div>
+    </div>
+
+    <!-- MÀN HÌNH LÀM VIỆC CHÍNH -->
+    <div id="app-screen" class="hidden">
+        <!-- Navbar -->
+        <header class="bg-blue-700 text-white p-4 shadow-md flex justify-between items-center">
+            <div>
+                <h2 class="font-bold text-lg">QUẢN LÝ NỀ NẾP THPT</h2>
+                <p id="user-info" class="text-xs text-blue-200"></p>
+            </div>
+            <button onclick="logout()" class="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-sm">Đăng xuất</button>
+        </header>
+
+        <main class="max-w-5xl mx-auto p-4 space-y-6">
+
+            <!-- PHÂN KHU 1: QUÉT THẺ & GHI NHẬN LỖI (Dành cho Tổ viên, Tổ trưởng, Admin) -->
+            <section id="scanner-section" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hidden">
+                <h3 class="font-bold text-lg text-blue-700 mb-3 border-b pb-2">1. Quét mã thẻ học sinh vi phạm</h3>
+                
+                <div class="grid md:grid-cols-2 gap-6">
+                    <!-- Cột Camera & Tìm mã -->
+                    <div>
+                        <div id="reader" class="w-full rounded-lg overflow-hidden border bg-black"></div>
+                        <div class="mt-3 flex gap-2">
+                            <button onclick="startScanner()" class="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-medium text-sm">Bật Camera Quét</button>
+                            <button onclick="stopScanner()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm">Tắt Cam</button>
+                        </div>
+                        
+                        <div class="mt-4 pt-3 border-t">
+                            <label class="text-xs font-semibold text-slate-500 uppercase">Hoặc nhập tay Mã HS (Test: HS1001, HS1002)</label>
+                            <div class="flex gap-2 mt-1">
+                                <input type="text" id="manual-code" placeholder="Nhập mã thẻ HS..." class="flex-1 border rounded-lg p-2 text-sm uppercase">
+                                <button onclick="lookupStudent(document.getElementById('manual-code').value)" class="bg-blue-600 text-white px-4 py-2 rounded-lg text-sm font-medium">Tìm</button>
+                            </div>
+                        </div>
+                    </div>
+
+                    <!-- Cột Thông tin HS & Tích lỗi -->
+                    <div class="bg-slate-50 p-4 rounded-lg border">
+                        <div id="student-card" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg hidden">
+                            <p class="text-xs text-blue-600 font-bold uppercase">Thông tin học sinh</p>
+                            <p id="st-name" class="text-lg font-bold text-slate-900"></p>
+                            <p id="st-meta" class="text-sm text-slate-600"></p>
+                        </div>
+                        <div id="student-placeholder" class="mb-4 p-4 text-center text-slate-400 border border-dashed rounded-lg text-sm">
+                            Chưa quét được học sinh nào
+                        </div>
+
+                        <p class="font-semibold text-sm mb-2">Chọn lỗi vi phạm:</p>
+                        <div id="violation-list" class="space-y-2 max-h-56 overflow-y-auto pr-1"></div>
+
+                        <input type="text" id="record-note" placeholder="Ghi chú thêm (nếu có)..." class="w-full border rounded-lg p-2 text-sm mt-3">
+                        
+                        <button onclick="submitRecord()" class="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow transition">
+                            GHI NHẬN VI PHẠM
+                        </button>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PHÂN KHU 2: QUẢN TRỊ DỮ LIỆU, TÀI KHOẢN & MẪU LỖI (Chỉ dành cho Admin) -->
+            <section id="admin-section" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-6 hidden">
+                <h3 class="font-bold text-lg text-purple-700 border-b pb-2">Quản trị hệ thống (Admin)</h3>
+
+                <!-- Nhập DS HS & Sinh PDF Mã QR hàng loạt -->
+                <div class="grid md:grid-cols-2 gap-4">
+                    <div class="p-4 bg-slate-50 rounded-lg border">
+                        <h4 class="font-semibold text-sm text-slate-800 mb-1">Nhập danh sách học sinh từ Excel</h4>
+                        <p class="text-xs text-slate-500 mb-3">Cột bắt buộc: <code>MaHS, HoTen, Lop, Khoi, NgaySinh</code></p>
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <input type="file" id="excel-file" accept=".xlsx, .xls" class="text-xs border bg-white p-1.5 rounded-lg flex-1">
+                            <button onclick="uploadExcel()" class="bg-purple-600 hover:bg-purple-700 text-white px-3 py-2 rounded-lg text-xs font-medium">Nhập HS</button>
+                        </div>
+                    </div>
+
+                    <div class="p-4 bg-slate-50 rounded-lg border">
+                        <h4 class="font-semibold text-sm text-slate-800 mb-1">Xuất file PDF in hàng loạt mã QR thẻ HS</h4>
+                        <p class="text-xs text-slate-500 mb-3">Tải file Excel (<code>MaHS, HoTen, Lop</code>) để tạo file PDF A4</p>
+                        <div class="flex flex-wrap gap-2 items-center">
+                            <input type="file" id="qr-excel-file" accept=".xlsx, .xls" class="text-xs border bg-white p-1.5 rounded-lg flex-1">
+                            <button onclick="downloadQrPdf()" class="bg-rose-600 hover:bg-rose-700 text-white px-3 py-2 rounded-lg text-xs font-medium">Tải PDF Mã QR</button>
+                        </div>
+                    </div>
+                </div>
+
+                <!-- Quản lý thêm / sửa tài khoản -->
+                <div class="p-4 bg-slate-50 rounded-lg border">
+                    <h4 class="font-semibold text-sm text-slate-800 mb-3">Quản lý tài khoản (Tổ viên, Tổ trưởng, Giám hiệu)</h4>
+                    <div class="grid sm:grid-cols-5 gap-2 mb-3">
+                        <input type="hidden" id="edit-user-id">
+                        <input type="text" id="u-username" placeholder="Tên đăng nhập" class="border rounded-lg p-2 text-xs bg-white">
+                        <input type="password" id="u-password" placeholder="Mật khẩu (bỏ trống nếu giữ cũ)" class="border rounded-lg p-2 text-xs bg-white">
+                        <input type="text" id="u-fullname" placeholder="Họ và tên" class="border rounded-lg p-2 text-xs bg-white">
+                        <select id="u-role" class="border rounded-lg p-2 text-xs bg-white">
+                            <option value="tovien">Tổ viên</option>
+                            <option value="totruong">Tổ trưởng</option>
+                            <option value="giamhieu">Ban Giám hiệu</option>
+                            <option value="admin">Admin</option>
+                        </select>
+                        <div class="flex gap-1">
+                            <button onclick="saveUser()" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white rounded-lg text-xs font-medium py-2">Lưu TK</button>
+                            <button onclick="resetUserForm()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 rounded-lg text-xs px-2">Hủy</button>
+                        </div>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left border-collapse bg-white rounded-lg overflow-hidden">
+                            <thead>
+                                <tr class="bg-slate-200 text-slate-700">
+                                    <th class="p-2">Tên đăng nhập</th>
+                                    <th class="p-2">Họ và tên</th>
+                                    <th class="p-2">Vai trò</th>
+                                    <th class="p-2 text-right">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="users-table" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Quản lý tạo / xóa mẫu lỗi vi phạm -->
+                <div class="p-4 bg-slate-50 rounded-lg border">
+                    <h4 class="font-semibold text-sm text-slate-800 mb-3">Quản lý mẫu lỗi vi phạm & khung điểm trừ</h4>
+                    <div class="grid sm:grid-cols-6 gap-2 mb-3">
+                        <input type="text" id="v-name" placeholder="Tên lỗi vi phạm (VD: Không đội mũ bảo hiểm)" class="sm:col-span-3 border rounded-lg p-2 text-xs bg-white">
+                        <input type="number" id="v-points" min="1" placeholder="Điểm trừ (VD: 5)" class="sm:col-span-2 border rounded-lg p-2 text-xs bg-white">
+                        <button onclick="saveViolationType()" class="bg-purple-600 hover:bg-purple-700 text-white rounded-lg text-xs font-medium py-2">
+                            Thêm lỗi
+                        </button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-xs text-left border-collapse bg-white rounded-lg overflow-hidden">
+                            <thead>
+                                <tr class="bg-slate-200 text-slate-700">
+                                    <th class="p-2">Tên lỗi vi phạm</th>
+                                    <th class="p-2 text-center w-28">Điểm trừ</th>
+                                    <th class="p-2 text-right w-24">Thao tác</th>
+                                </tr>
+                            </thead>
+                            <tbody id="violation-types-table" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PHÂN KHU 3: BẢNG XẾP HẠNG THI ĐUA TUẦN, SO SÁNH & BIỂU ĐỒ XU HƯỚNG -->
+            <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex flex-wrap justify-between items-center gap-3 mb-4 border-b pb-3">
+                    <div>
+                        <h3 class="font-bold text-lg text-indigo-700">Bảng xếp hạng thi đua tuần theo lớp</h3>
+                        <p class="text-xs text-slate-500">Điểm gốc: 100 điểm/tuần — Tự động trừ lỗi đã duyệt ("Đã chốt")</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 text-sm">
+                        <label class="text-xs text-slate-600">Từ ngày:</label>
+                        <input type="date" id="rank-start" class="border rounded-lg p-1.5 text-xs">
+                        <label class="text-xs text-slate-600">Đến ngày:</label>
+                        <input type="date" id="rank-end" class="border rounded-lg p-1.5 text-xs">
+                        <button onclick="loadRankings()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium">Xem xếp hạng</button>
+                        <button onclick="exportRankingsExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium">Xuất Excel xếp hạng</button>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left border-collapse">
+                        <thead>
+                            <tr class="bg-indigo-50 text-indigo-900 border-b">
+                                <th class="p-2.5 w-16 text-center">Hạng</th>
+                                <th class="p-2.5">Lớp</th>
+                                <th class="p-2.5 text-center">Số lượt lỗi</th>
+                                <th class="p-2.5 text-center">Điểm trừ</th>
+                                <th class="p-2.5 text-center">Tổng điểm</th>
+                            </tr>
+                        </thead>
+                        <tbody id="ranking-table" class="divide-y"></tbody>
+                    </table>
+                </div>
+
+                <!-- So sánh lịch sử điểm thi đua giữa các tuần -->
+                <div class="mt-6 pt-5 border-t">
+                    <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+                        <div>
+                            <h4 class="font-bold text-base text-slate-800">So sánh điểm thi đua giữa các tuần</h4>
+                            <p class="text-xs text-slate-500">Theo dõi biến động điểm qua 4 tuần liên tiếp (kết thúc theo ngày "Đến ngày" ở trên)</p>
+                        </div>
+                        <button onclick="loadHistoryComparison()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium">Cập nhật so sánh</button>
+                    </div>
+
+                    <div class="overflow-x-auto">
+                        <table class="w-full text-sm text-left border-collapse">
+                            <thead>
+                                <tr id="history-thead" class="bg-slate-100 text-slate-700 border-b"></tr>
+                            </thead>
+                            <tbody id="history-table" class="divide-y"></tbody>
+                        </table>
+                    </div>
+                </div>
+
+                <!-- Biểu đồ xu hướng điểm thi đua từng lớp qua các tuần -->
+                <div class="mt-6 pt-5 border-t">
+                    <div class="flex flex-wrap justify-between items-center gap-2 mb-3">
+                        <div>
+                            <h4 class="font-bold text-base text-slate-800">Biểu đồ xu hướng điểm thi đua qua các tuần</h4>
+                            <p class="text-xs text-slate-500">Bấm vào tên lớp trên chú thích để ẩn/hiện đường của lớp đó</p>
+                        </div>
+                        <div class="flex items-center gap-2">
+                            <label for="chart-class-filter" class="text-xs text-slate-600">Lọc lớp:</label>
+                            <select id="chart-class-filter" onchange="renderHistoryChart()" class="border rounded-lg p-1.5 text-xs bg-white">
+                                <option value="__ALL__">Tất cả các lớp</option>
+                            </select>
+                        </div>
+                    </div>
+
+                    <div class="bg-slate-50 border rounded-xl p-3">
+                        <div class="relative h-80 w-full">
+                            <canvas id="weekly-trend-chart"></canvas>
+                        </div>
+                    </div>
+                </div>
+            </section>
+
+            <!-- PHÂN KHU 4: DANH SÁCH VI PHẠM & BÁO CÁO -->
+            <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
+                <div class="flex flex-wrap justify-between items-center gap-2 mb-4 border-b pb-3">
+                    <h3 class="font-bold text-lg text-slate-800">Nhật ký vi phạm & Xử lý</h3>
+                    <div class="flex gap-2">
+                        <button onclick="loadRecords()" class="bg-slate-200 hover:bg-slate-300 px-3 py-1.5 rounded-lg text-sm font-medium">Làm mới</button>
+                        <a href="/api/export-excel" id="btn-export" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium hidden">Xuất báo cáo vi phạm</a>
+                    </div>
+                </div>
+
+                <div class="overflow-x-auto">
+                    <table class="w-full text-sm text-left border-collapse">
+                        <thead>
+                            <tr class="bg-slate-100 text-slate-700 border-b">
+                                <th class="p-2.5">Thời gian</th>
+                                <th class="p-2.5">Học sinh</th>
+                                <th class="p-2.5">Lớp</th>
+                                <th class="p-2.5">Lỗi vi phạm</th>
+                                <th class="p-2.5 text-center">Điểm trừ</th>
+                                <th class="p-2.5">Người ghi</th>
+                                <th class="p-2.5">Trạng thái</th>
+                                <th class="p-2.5 text-right">Thao tác</th>
+                            </tr>
+                        </thead>
+                        <tbody id="records-table" class="divide-y"></tbody>
+                    </table>
+                </div>
+            </section>
+
+        </main>
+    </div>
+
+    <script>
+        let currentUser = null;
+        let currentStudent = null;
+        let html5QrCode = null;
+        let latestHistoryData = null;
+        let weeklyTrendChart = null;
+
+        async function login() {
+            const username = document.getElementById("username").value.trim();
+            const password = document.getElementById("password").value.trim();
+            const res = await fetch("/api/login", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({username, password})
+            });
+            if (!res.ok) {
+                document.getElementById("login-error").innerText = "Sai tài khoản hoặc mật khẩu!";
+                document.getElementById("login-error").classList.remove("hidden");
+                return;
+            }
+            document.getElementById("login-error").classList.add("hidden");
+            currentUser = await res.json();
+            setupDashboard();
+        }
+
+        function logout() {
+            stopScanner();
+            currentUser = null;
+            document.getElementById("app-screen").classList.add("hidden");
+            document.getElementById("login-screen").classList.remove("hidden");
+        }
+
+        async function setupDashboard() {
+            document.getElementById("login-screen").classList.add("hidden");
+            document.getElementById("app-screen").classList.remove("hidden");
+            
+            const roleNames = {
+                "tovien": "Tổ viên (Cờ đỏ)",
+                "totruong": "Tổ trưởng trực tuần",
+                "giamhieu": "Ban Giám hiệu",
+                "admin": "Quản trị viên (Admin)"
+            };
+            document.getElementById("user-info").innerText = `${currentUser.full_name} — Vai trò: ${roleNames[currentUser.role]}`;
+
+            const role = currentUser.role;
+            document.getElementById("scanner-section").classList.toggle("hidden", !["tovien", "totruong", "admin"].includes(role));
+            document.getElementById("admin-section").classList.toggle("hidden", role !== "admin");
+            document.getElementById("btn-export").classList.toggle("hidden", !["totruong", "giamhieu", "admin"].includes(role));
+
+            await loadViolationTypes();
+            await loadRecords();
+            await loadRankings();
+            await loadUsers();
+        }
+
+        async function loadViolationTypes() {
+            const res = await fetch("/api/violations");
+            const data = await res.json();
+            const container = document.getElementById("violation-list");
+            container.innerHTML = data.map(v => `
+                <label class="flex items-center justify-between p-2.5 bg-white border rounded-lg cursor-pointer hover:bg-blue-50">
+                    <div class="flex items-center gap-2">
+                        <input type="checkbox" value="${v.id}" class="v-checkbox w-4 h-4 text-blue-600">
+                        <span class="text-sm font-medium">${v.name}</span>
+                    </div>
+                    <span class="text-xs font-bold text-red-600 bg-red-50 px-2 py-0.5 rounded">-${v.points}đ</span>
+                </label>
+            `).join("");
+
+            const vTable = document.getElementById("violation-types-table");
+            if (vTable) {
+                if (!data.length) {
+                    vTable.innerHTML = `<tr><td colspan="3" class="p-3 text-center text-slate-400">Chưa có mẫu lỗi nào</td></tr>`;
+                } else {
+                    vTable.innerHTML = data.map(v => `
+                        <tr>
+                            <td class="p-2 font-medium">${v.name}</td>
+                            <td class="p-2 text-center font-bold text-red-600">-${v.points}đ</td>
+                            <td class="p-2 text-right">
+                                <button onclick="deleteViolationType(${v.id})" class="text-red-600 hover:underline">Xóa</button>
+                            </td>
+                        </tr>
+                    `).join("");
+                }
+            }
+        }
+
+        async function saveViolationType() {
+            const name = document.getElementById("v-name").value.trim();
+            const points = parseInt(document.getElementById("v-points").value, 10);
+            if (!name) return alert("Vui lòng nhập tên lỗi vi phạm!");
+            if (!points || points <= 0) return alert("Vui lòng nhập điểm trừ lớn hơn 0!");
+
+            const res = await fetch("/api/admin/violations", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ name, points })
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.detail || "Không thể thêm mẫu lỗi");
+
+            document.getElementById("v-name").value = "";
+            document.getElementById("v-points").value = "";
+            alert(data.message);
+            await loadViolationTypes();
+        }
+
+        async function deleteViolationType(id) {
+            if (!confirm("Xác nhận xóa mẫu lỗi vi phạm này?")) return;
+            const res = await fetch(`/api/admin/violations/${id}`, { method: "DELETE" });
+            const data = await res.json();
+            if (!res.ok) return alert(data.detail || "Không thể xóa mẫu lỗi");
+            await loadViolationTypes();
+        }
+
+        function startScanner() {
+            html5QrCode = new Html5Qrcode("reader");
+            html5QrCode.start(
+                { facingMode: "environment" },
+                { fps: 10, qrbox: { width: 220, height: 220 } },
+                (decodedText) => {
+                    lookupStudent(decodedText);
+                    if (navigator.vibrate) navigator.vibrate(150);
+                }
+            ).catch(err => alert("Không thể mở camera (Cần chạy trên HTTPS hoặc localhost): " + err));
+        }
+
+        function stopScanner() {
+            if (html5QrCode && html5QrCode.isScanning) {
+                html5QrCode.stop();
+            }
+        }
+
+        async function lookupStudent(code) {
+            if (!code) return;
+            const res = await fetch(`/api/students/${code}`);
+            if (!res.ok) {
+                alert("Không tìm thấy mã học sinh: " + code);
+                return;
+            }
+            currentStudent = await res.json();
+            document.getElementById("student-placeholder").classList.add("hidden");
+            document.getElementById("student-card").classList.remove("hidden");
+            document.getElementById("st-name").innerText = `${currentStudent.full_name} (${currentStudent.student_code})`;
+            document.getElementById("st-meta").innerText = `Lớp: ${currentStudent.class_name} | Khối: ${currentStudent.grade} | NS: ${currentStudent.dob}`;
+        }
+
+        async function submitRecord() {
+            if (!currentStudent) return alert("Vui lòng quét hoặc nhập mã học sinh trước!");
+            const checked = Array.from(document.querySelectorAll(".v-checkbox:checked")).map(cb => parseInt(cb.value));
+            if (checked.length === 0) return alert("Vui lòng tích chọn ít nhất 1 lỗi vi phạm!");
+
+            const res = await fetch("/api/records", {
+                method: "POST",
+                headers: {"Content-Type": "application/json"},
+                body: JSON.stringify({
+                    student_code: currentStudent.student_code,
+                    violation_ids: checked,
+                    recorded_by: currentUser.full_name,
+                    note: document.getElementById("record-note").value
+                })
+            });
+            if (res.ok) {
+                alert("Đã ghi nhận vi phạm thành công!");
+                document.querySelectorAll(".v-checkbox").forEach(cb => cb.checked = false);
+                document.getElementById("record-note").value = "";
+                currentStudent = null;
+                document.getElementById("student-card").classList.add("hidden");
+                document.getElementById("student-placeholder").classList.remove("hidden");
+                loadRecords();
+            }
+        }
+
+        async function loadRecords() {
+            const res = await fetch("/api/records");
+            const data = await res.json();
+            const tbody = document.getElementById("records-table");
+            
+            const statusBadges = {
+                "pending": `<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">Chờ duyệt</span>`,
+                "approved": `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-xs font-medium">Đã chốt</span>`,
+                "rejected": `<span class="bg-slate-200 text-slate-600 px-2 py-0.5 rounded text-xs line-through">Đã hủy</span>`
+            };
+
+            tbody.innerHTML = data.map(r => {
+                let actions = "";
+                if (["totruong", "admin"].includes(currentUser.role) && r.status === "pending") {
+                    actions = `
+                        <button onclick="setStatus(${r.id}, 'approved')" class="text-emerald-600 hover:underline font-medium mr-2">Duyệt</button>
+                        <button onclick="setStatus(${r.id}, 'rejected')" class="text-red-600 hover:underline font-medium">Hủy</button>
+                    `;
+                } else if (currentUser.role === "tovien" && r.recorded_by === currentUser.full_name && r.status === "pending") {
+                    actions = `<button onclick="setStatus(${r.id}, 'rejected')" class="text-red-600 hover:underline text-xs">Xóa nhầm</button>`;
+                }
+
+                return `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-2.5 text-xs text-slate-500">${r.recorded_at}</td>
+                        <td class="p-2.5 font-medium">${r.full_name || r.student_code}</td>
+                        <td class="p-2.5">${r.class_name || "-"}</td>
+                        <td class="p-2.5">${r.violation_names} ${r.note ? `<i class="text-xs text-slate-400">(${r.note})</i>` : ""}</td>
+                        <td class="p-2.5 text-center font-bold text-red-600">-${r.total_points}</td>
+                        <td class="p-2.5 text-xs">${r.recorded_by}</td>
+                        <td class="p-2.5">${statusBadges[r.status]}</td>
+                        <td class="p-2.5 text-right">${actions}</td>
+                    </tr>
+                `;
+            }).join("");
+        }
+
+        async function setStatus(id, status) {
+            await fetch(`/api/records/${id}/status?status=${status}`, { method: "PUT" });
+            await loadRecords();
+            await loadRankings();
+        }
+
+        async function uploadExcel() {
+            const fileInput = document.getElementById("excel-file");
+            if (!fileInput.files.length) return alert("Vui lòng chọn file Excel!");
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+            
+            const res = await fetch("/api/admin/import-students", { method: "POST", body: formData });
+            const result = await res.json();
+            alert(result.message);
+            await loadRankings();
+        }
+
+        async function loadRankings() {
+            const start = document.getElementById("rank-start").value;
+            const end = document.getElementById("rank-end").value;
+            let url = "/api/rankings";
+            if (start && end) url += `?start_date=${start}&end_date=${end}`;
+
+            const res = await fetch(url);
+            const data = await res.json();
+
+            if (!start) document.getElementById("rank-start").value = data.start_date;
+            if (!end) document.getElementById("rank-end").value = data.end_date;
+
+            const tbody = document.getElementById("ranking-table");
+            if (!data.rankings.length) {
+                tbody.innerHTML = `<tr><td colspan="5" class="p-4 text-center text-slate-400">Chưa có dữ liệu lớp học</td></tr>`;
+            } else {
+                tbody.innerHTML = data.rankings.map(r => {
+                    const badgeClass = r.rank === 1 ? "bg-amber-100 text-amber-800 font-bold" :
+                                       r.rank === 2 ? "bg-slate-200 text-slate-800 font-semibold" :
+                                       r.rank === 3 ? "bg-orange-100 text-orange-800 font-semibold" : "text-slate-600";
+                    return `
+                        <tr class="hover:bg-slate-50">
+                            <td class="p-2.5 text-center"><span class="px-2 py-0.5 rounded ${badgeClass}">#${r.rank}</span></td>
+                            <td class="p-2.5 font-semibold">${r.class_name}</td>
+                            <td class="p-2.5 text-center">${r.violation_count}</td>
+                            <td class="p-2.5 text-center text-red-600 font-medium">-${r.lost_points}</td>
+                            <td class="p-2.5 text-center font-bold text-indigo-700">${r.final_score}</td>
+                        </tr>
+                    `;
+                }).join("");
+            }
+
+            await loadHistoryComparison();
+        }
+
+        async function loadHistoryComparison() {
+            const end = document.getElementById("rank-end").value;
+            const url = end ? `/api/rankings/history?end_date=${end}&weeks=4` : "/api/rankings/history?weeks=4";
+            const res = await fetch(url);
+            const data = await res.json();
+            latestHistoryData = data;
+
+            const thead = document.getElementById("history-thead");
+            const tbody = document.getElementById("history-table");
+
+            if (!data.weeks || !data.weeks.length) {
+                thead.innerHTML = `<th class="p-2.5">Lớp</th>`;
+                tbody.innerHTML = `<tr><td class="p-4 text-center text-slate-400">Chưa có dữ liệu</td></tr>`;
+                populateChartClassFilter([]);
+                renderHistoryChart();
+                return;
+            }
+
+            thead.innerHTML = `
+                <th class="p-2.5">Lớp</th>
+                ${data.weeks.map(w => `<th class="p-2.5 text-center">${w.label}</th>`).join("")}
+                <th class="p-2.5 text-center">Biến động</th>
+            `;
+
+            if (!data.rows.length) {
+                tbody.innerHTML = `<tr><td colspan="${data.weeks.length + 2}" class="p-4 text-center text-slate-400">Chưa có dữ liệu lớp học</td></tr>`;
+                populateChartClassFilter([]);
+                renderHistoryChart();
+                return;
+            }
+
+            tbody.innerHTML = data.rows.map(r => {
+                const deltaText = r.delta > 0 ? `+${r.delta}` : `${r.delta}`;
+                const deltaClass = r.delta > 0
+                    ? "bg-emerald-100 text-emerald-800"
+                    : (r.delta < 0 ? "bg-rose-100 text-rose-800" : "bg-slate-100 text-slate-600");
+
+                return `
+                    <tr class="hover:bg-slate-50">
+                        <td class="p-2.5 font-semibold">${r.class_name}</td>
+                        ${r.scores.map((sc, i) => {
+                            const isLatest = i === r.scores.length - 1;
+                            return `<td class="p-2.5 text-center ${isLatest ? "font-bold text-indigo-700 bg-indigo-50/50" : "text-slate-700"}">${sc}</td>`;
+                        }).join("")}
+                        <td class="p-2.5 text-center">
+                            <span class="px-2 py-0.5 rounded text-xs font-semibold ${deltaClass}">${deltaText}</span>
+                        </td>
+                    </tr>
+                `;
+            }).join("");
+
+            populateChartClassFilter(data.rows);
+            renderHistoryChart();
+        }
+
+        function getClassColor(index) {
+            const palette = [
+                "#2563eb", "#dc2626", "#16a34a", "#d97706", "#7c3aed",
+                "#0891b2", "#db2777", "#4f46e5", "#65a30d", "#ea580c",
+                "#0d9488", "#9333ea"
+            ];
+            return palette[index % palette.length];
+        }
+
+        function populateChartClassFilter(rows) {
+            const select = document.getElementById("chart-class-filter");
+            const prevValue = select.value || "__ALL__";
+            const classNames = rows.map(r => r.class_name);
+
+            select.innerHTML = `<option value="__ALL__">Tất cả các lớp (${classNames.length})</option>` +
+                classNames.map(cls => `<option value="${cls}">${cls}</option>`).join("");
+
+            if (prevValue === "__ALL__" || classNames.includes(prevValue)) {
+                select.value = prevValue;
+            } else {
+                select.value = "__ALL__";
+            }
+        }
+
+        function renderHistoryChart() {
+            const canvas = document.getElementById("weekly-trend-chart");
+            if (!canvas || typeof Chart === "undefined") return;
+
+            if (weeklyTrendChart) {
+                weeklyTrendChart.destroy();
+                weeklyTrendChart = null;
+            }
+
+            if (!latestHistoryData || !latestHistoryData.weeks?.length || !latestHistoryData.rows?.length) {
+                return;
+            }
+
+            const selectedClass = document.getElementById("chart-class-filter")?.value || "__ALL__";
+            const labels = latestHistoryData.weeks.map(w => w.label);
+
+            const filteredRows = selectedClass === "__ALL__"
+                ? latestHistoryData.rows
+                : latestHistoryData.rows.filter(r => r.class_name === selectedClass);
+
+            const datasets = filteredRows.map((r, idx) => {
+                const color = getClassColor(idx);
+                return {
+                    label: r.class_name,
+                    data: r.scores,
+                    borderColor: color,
+                    backgroundColor: color,
+                    borderWidth: selectedClass === "__ALL__" ? 2 : 3,
+                    pointRadius: 4,
+                    pointHoverRadius: 6,
+                    tension: 0.25,
+                    fill: false
+                };
+            });
+
+            weeklyTrendChart = new Chart(canvas.getContext("2d"), {
+                type: "line",
+                data: { labels, datasets },
+                options: {
+                    responsive: true,
+                    maintainAspectRatio: false,
+                    interaction: {
+                        mode: "nearest",
+                        axis: "x",
+                        intersect: false
+                    },
+                    plugins: {
+                        legend: {
+                            position: "top",
+                            labels: {
+                                boxWidth: 12,
+                                usePointStyle: true
+                            }
+                        },
+                        tooltip: {
+                            callbacks: {
+                                label: (ctx) => `${ctx.dataset.label}: ${ctx.parsed.y} điểm`
+                            }
+                        }
+                    },
+                    scales: {
+                        y: {
+                            suggestedMin: 60,
+                            suggestedMax: 100,
+                            title: {
+                                display: true,
+                                text: "Điểm thi đua"
+                            }
+                        },
+                        x: {
+                            title: {
+                                display: true,
+                                text: "Tuần"
+                            }
+                        }
+                    }
+                }
+            });
+        }
+
+        function exportRankingsExcel() {
+            const start = document.getElementById("rank-start").value;
+            const end = document.getElementById("rank-end").value;
+            const params = new URLSearchParams();
+            if (start) params.set("start_date", start);
+            if (end) params.set("end_date", end);
+            const query = params.toString() ? `?${params.toString()}` : "";
+            window.location.href = `/api/rankings/export-excel${query}`;
+        }
+
+        async function downloadQrPdf() {
+            const fileInput = document.getElementById("qr-excel-file");
+            if (!fileInput.files.length) return alert("Vui lòng chọn file Excel để tạo PDF mã QR!");
+            const formData = new FormData();
+            formData.append("file", fileInput.files[0]);
+
+            const res = await fetch("/api/admin/generate-qr-pdf", { method: "POST", body: formData });
+            if (!res.ok) {
+                const err = await res.json();
+                return alert(err.detail || "Lỗi tạo file PDF");
+            }
+            const blob = await res.blob();
+            const url = window.URL.createObjectURL(blob);
+            const a = document.createElement("a");
+            a.href = url;
+            a.download = "MaQR_TheHocSinh.pdf";
+            a.click();
+            window.URL.revokeObjectURL(url);
+        }
+
+        async function loadUsers() {
+            if (currentUser.role !== "admin") return;
+            const res = await fetch("/api/admin/users");
+            const users = await res.json();
+            const roleLabel = { tovien: "Tổ viên", totruong: "Tổ trưởng", giamhieu: "Ban Giám hiệu", admin: "Admin" };
+
+            document.getElementById("users-table").innerHTML = users.map(u => `
+                <tr>
+                    <td class="p-2 font-mono">${u.username}</td>
+                    <td class="p-2 font-medium">${u.full_name}</td>
+                    <td class="p-2">${roleLabel[u.role] || u.role}</td>
+                    <td class="p-2 text-right space-x-2">
+                        <button onclick='editUser(${JSON.stringify(u)})' class="text-blue-600 hover:underline">Sửa</button>
+                        ${u.username !== "admin" ? `<button onclick="deleteUser(${u.id})" class="text-red-600 hover:underline">Xóa</button>` : ""}
+                    </td>
+                </tr>
+            `).join("");
+        }
+
+        function editUser(u) {
+            document.getElementById("edit-user-id").value = u.id;
+            document.getElementById("u-username").value = u.username;
+            document.getElementById("u-password").value = "";
+            document.getElementById("u-fullname").value = u.full_name;
+            document.getElementById("u-role").value = u.role;
+        }
+
+        function resetUserForm() {
+            document.getElementById("edit-user-id").value = "";
+            document.getElementById("u-username").value = "";
+            document.getElementById("u-password").value = "";
+            document.getElementById("u-fullname").value = "";
+            document.getElementById("u-role").value = "tovien";
+        }
+
+        async function saveUser() {
+            const id = document.getElementById("edit-user-id").value;
+            const payload = {
+                username: document.getElementById("u-username").value.trim(),
+                password: document.getElementById("u-password").value || null,
+                full_name: document.getElementById("u-fullname").value.trim(),
+                role: document.getElementById("u-role").value
+            };
+            if (!payload.username || !payload.full_name) return alert("Nhập đủ tên đăng nhập và họ tên!");
+
+            const url = id ? `/api/admin/users/${id}` : "/api/admin/users";
+            const method = id ? "PUT" : "POST";
+            const res = await fetch(url, {
+                method,
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify(payload)
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.detail || "Lỗi lưu tài khoản");
+            alert(data.message);
+            resetUserForm();
+            loadUsers();
+        }
+
+        async function deleteUser(id) {
+            if (!confirm("Xác nhận xóa tài khoản này?")) return;
+            await fetch(`/api/admin/users/${id}`, { method: "DELETE" });
+            loadUsers();
+        }
+    </script>
+</body>
+</html>
