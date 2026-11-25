@@ -484,6 +484,211 @@ def delete_user(user_id: int):
     return {"message": "Đã xóa tài khoản!"}
 
 
+@app.get("/api/admin/users-template-excel")
+def download_users_template():
+    """Tải file Excel mẫu để nhập hàng loạt tài khoản người dùng."""
+    sample_rows = [
+        {
+            "TenDangNhap": "tovien2",
+            "MatKhau": "123456",
+            "HoTen": "Lê Văn C (Cờ đỏ 2)",
+            "VaiTro": "tovien",
+            "PhamVi": "",
+        },
+        {
+            "TenDangNhap": "totruong2",
+            "MatKhau": "123456",
+            "HoTen": "Phạm Thị D (Tổ trưởng)",
+            "VaiTro": "totruong",
+            "PhamVi": "",
+        },
+        {
+            "TenDangNhap": "gvcn10a2",
+            "MatKhau": "123456",
+            "HoTen": "Thầy Trần Minh (GVCN 10A2)",
+            "VaiTro": "gvcn",
+            "PhamVi": "10A2",
+        },
+        {
+            "TenDangNhap": "ph_hs1002",
+            "MatKhau": "123456",
+            "HoTen": "Phụ huynh em Phạm Thu Hà",
+            "VaiTro": "phuhuynh",
+            "PhamVi": "HS1002",
+        },
+        {
+            "TenDangNhap": "hieupho2",
+            "MatKhau": "123456",
+            "HoTen": "Cô Hoàng Lan (Ban Giám hiệu)",
+            "VaiTro": "giamhieu",
+            "PhamVi": "",
+        },
+    ]
+    df_sample = pd.DataFrame(sample_rows)
+    df_guide = pd.DataFrame(
+        [
+            {"MaVaiTro_HopLe": "tovien", "MoTa": "Tổ viên (Cờ đỏ quét thẻ)"},
+            {"MaVaiTro_HopLe": "totruong", "MoTa": "Tổ trưởng trực tuần (duyệt/hủy lỗi)"},
+            {"MaVaiTro_HopLe": "gvcn", "MoTa": "Giáo viên chủ nhiệm (cột PhamVi điền tên lớp, VD: 10A1)"},
+            {"MaVaiTro_HopLe": "phuhuynh", "MoTa": "Phụ huynh học sinh (cột PhamVi điền Mã HS của con, VD: HS1001)"},
+            {"MaVaiTro_HopLe": "giamhieu", "MoTa": "Ban Giám hiệu (xem báo cáo, xuất Excel)"},
+            {"MaVaiTro_HopLe": "admin", "MoTa": "Quản trị viên hệ thống"},
+        ]
+    )
+
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df_sample.to_excel(writer, index=False, sheet_name="DanhSachTaiKhoan")
+        df_guide.to_excel(writer, index=False, sheet_name="HuongDanVaiTro")
+        for sheet_name in writer.sheets:
+            ws = writer.sheets[sheet_name]
+            for col in ws.columns:
+                max_len = max(len(str(cell.value or "")) for cell in col)
+                ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 52)
+    output.seek(0)
+
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": "attachment; filename=Mau_Import_TaiKhoan.xlsx"},
+    )
+
+
+@app.post("/api/admin/import-users")
+async def import_users(file: UploadFile = File(...)):
+    """
+    Import hàng loạt tài khoản từ file Excel.
+    Các cột hỗ trợ:
+    - TenDangNhap (hoặc username)
+    - MatKhau (hoặc password - nếu để trống mặc định '123456')
+    - HoTen (hoặc full_name)
+    - VaiTro (hoặc role): tovien, totruong, gvcn, phuhuynh, giamhieu, admin
+      (cũng tự nhận diện tiếng Việt: 'Tổ viên', 'Tổ trưởng', 'Giáo viên chủ nhiệm', 'Phụ huynh', 'Ban Giám hiệu')
+    - PhamVi (hoặc target_ref): Tên lớp (với gvcn) hoặc Mã HS (với phuhuynh)
+    """
+    contents = await file.read()
+    try:
+        df = pd.read_excel(io.BytesIO(contents))
+    except Exception as exc:
+        raise HTTPException(status_code=400, detail=f"Không đọc được file Excel: {exc}")
+
+    # Chuẩn hóa tên cột
+    col_map = {}
+    for col in df.columns:
+        c_clean = str(col).strip().lower()
+        if c_clean in ("tendangnhap", "username", "tai_khoan", "taikhoan"):
+            col_map["username"] = col
+        elif c_clean in ("matkhau", "password", "mat_khau"):
+            col_map["password"] = col
+        elif c_clean in ("hoten", "full_name", "fullname", "ho_ten"):
+            col_map["full_name"] = col
+        elif c_clean in ("vaitro", "role", "vai_tro", "quyen"):
+            col_map["role"] = col
+        elif c_clean in ("phamvi", "target_ref", "lop_mahs", "lop", "mahs", "pham_vi"):
+            col_map["target_ref"] = col
+
+    required = {"username", "full_name", "role"}
+    if not required.issubset(set(col_map.keys())):
+        raise HTTPException(
+            status_code=400,
+            detail="File Excel cần có đủ các cột: TenDangNhap, MatKhau, HoTen, VaiTro, PhamVi",
+        )
+
+    role_aliases = {
+        "tovien": "tovien",
+        "to vien": "tovien",
+        "tổ viên": "tovien",
+        "co do": "tovien",
+        "cờ đỏ": "tovien",
+        "totruong": "totruong",
+        "to truong": "totruong",
+        "tổ trưởng": "totruong",
+        "gvcn": "gvcn",
+        "giao vien chu nhiem": "gvcn",
+        "giáo viên chủ nhiệm": "gvcn",
+        "phuhuynh": "phuhuynh",
+        "phu huynh": "phuhuynh",
+        "phụ huynh": "phuhuynh",
+        "phụ huynh học sinh": "phuhuynh",
+        "giamhieu": "giamhieu",
+        "giam hieu": "giamhieu",
+        "ban giám hiệu": "giamhieu",
+        "giám hiệu": "giamhieu",
+        "admin": "admin",
+        "quản trị": "admin",
+    }
+
+    conn = get_db()
+    inserted = 0
+    updated = 0
+    errors = []
+
+    for idx, row in df.iterrows():
+        line_no = idx + 2
+        raw_user = str(row[col_map["username"]]).strip()
+        if not raw_user or raw_user.lower() == "nan":
+            continue
+
+        raw_name = str(row[col_map["full_name"]]).strip()
+        if not raw_name or raw_name.lower() == "nan":
+            errors.append(f"Dòng {line_no} ({raw_user}): Thiếu Họ tên")
+            continue
+
+        raw_role = str(row[col_map["role"]]).strip().lower()
+        norm_role = role_aliases.get(raw_role)
+        if not norm_role:
+            errors.append(f"Dòng {line_no} ({raw_user}): Vai trò '{raw_role}' không hợp lệ")
+            continue
+
+        raw_pw = ""
+        if "password" in col_map:
+            val_pw = str(row[col_map["password"]]).strip()
+            if val_pw and val_pw.lower() != "nan":
+                # Xử lý trường hợp Excel đọc số mật khẩu thành '123456.0'
+                if val_pw.endswith(".0") and val_pw[:-2].isdigit():
+                    val_pw = val_pw[:-2]
+                raw_pw = val_pw
+        if not raw_pw:
+            raw_pw = "123456"
+
+        raw_ref = ""
+        if "target_ref" in col_map:
+            val_ref = str(row[col_map["target_ref"]]).strip()
+            if val_ref and val_ref.lower() != "nan":
+                raw_ref = val_ref
+
+        if norm_role == "gvcn" and not raw_ref:
+            errors.append(f"Dòng {line_no} ({raw_user}): GVCN thiếu tên lớp ở cột PhamVi")
+            continue
+        if norm_role == "phuhuynh" and not raw_ref:
+            errors.append(f"Dòng {line_no} ({raw_user}): Phụ huynh thiếu Mã HS ở cột PhamVi")
+            continue
+
+        existing = conn.execute(
+            "SELECT id FROM users WHERE username=?", (raw_user,)
+        ).fetchone()
+        if existing:
+            conn.execute(
+                "UPDATE users SET password=?, full_name=?, role=?, target_ref=? WHERE username=?",
+                (raw_pw, raw_name, norm_role, raw_ref, raw_user),
+            )
+            updated += 1
+        else:
+            conn.execute(
+                "INSERT INTO users (username, password, full_name, role, target_ref) VALUES (?, ?, ?, ?, ?)",
+                (raw_user, raw_pw, raw_name, norm_role, raw_ref),
+            )
+            inserted += 1
+
+    conn.commit()
+    conn.close()
+
+    msg = f"Import hoàn tất: Thêm mới {inserted}, cập nhật {updated} tài khoản."
+    if errors:
+        msg += f" ({len(errors)} dòng lỗi: " + "; ".join(errors[:5]) + ")"
+    return {"message": msg, "inserted": inserted, "updated": updated, "errors": errors}
+
+
 # --- SINH FILE PDF IN HÀNG LOẠT MÃ QR TỪ EXCEL ---
 @app.post("/api/admin/generate-qr-pdf")
 async def generate_qr_pdf(file: UploadFile = File(...)):
