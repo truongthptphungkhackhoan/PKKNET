@@ -41,14 +41,22 @@ def init_db():
     cur = conn.cursor()
 
     # Bảng tài khoản
+    # role: 'tovien', 'totruong', 'giamhieu', 'gvcn', 'phuhuynh', 'admin'
+    # target_ref: lưu tên lớp phụ trách (đối với 'gvcn', VD: '10A1') hoặc Mã HS (đối với 'phuhuynh', VD: 'HS1001')
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
         username TEXT UNIQUE,
         password TEXT,
         full_name TEXT,
-        role TEXT -- 'tovien', 'totruong', 'giamhieu', 'admin'
+        role TEXT,
+        target_ref TEXT DEFAULT ''
     )""")
+
+    # Bổ sung cột target_ref nếu DB cũ chưa có
+    cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
+    if "target_ref" not in cols:
+        cur.execute("ALTER TABLE users ADD COLUMN target_ref TEXT DEFAULT ''")
 
     # Bảng học sinh
     cur.execute("""
@@ -83,13 +91,15 @@ def init_db():
 
     # Tạo tài khoản mặc định nếu chưa có
     users_seed = [
-        ("admin", "123456", "Quản trị viên Hệ thống", "admin"),
-        ("giamhieu", "123456", "Thầy Hiệu Phó Nề Nếp", "giamhieu"),
-        ("totruong", "123456", "Nguyễn Văn A (Tổ trưởng)", "totruong"),
-        ("tovien1", "123456", "Trần Thị B (Cờ đỏ 1)", "tovien"),
+        ("admin", "123456", "Quản trị viên Hệ thống", "admin", ""),
+        ("giamhieu", "123456", "Thầy Hiệu Phó Nề Nếp", "giamhieu", ""),
+        ("totruong", "123456", "Nguyễn Văn A (Tổ trưởng)", "totruong", ""),
+        ("tovien1", "123456", "Trần Thị B (Cờ đỏ 1)", "tovien", ""),
+        ("gvcn10a1", "123456", "Cô Nguyễn Lan (GVCN 10A1)", "gvcn", "10A1"),
+        ("ph_hs1001", "123456", "Phụ huynh em Lê Minh Khôi", "phuhuynh", "HS1001"),
     ]
     cur.executemany(
-        "INSERT OR IGNORE INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)",
+        "INSERT OR IGNORE INTO users (username, password, full_name, role, target_ref) VALUES (?, ?, ?, ?, ?)",
         users_seed,
     )
 
@@ -144,7 +154,8 @@ class UserCreateUpdate(BaseModel):
     username: str
     password: Optional[str] = None
     full_name: str
-    role: str  # 'tovien', 'totruong', 'giamhieu', 'admin'
+    role: str  # 'tovien', 'totruong', 'giamhieu', 'gvcn', 'phuhuynh', 'admin'
+    target_ref: Optional[str] = ""
 
 
 class ViolationTypeCreate(BaseModel):
@@ -158,15 +169,18 @@ async def serve_ui():
     base_dir = os.path.dirname(os.path.abspath(__file__))
     html_path = os.path.join(base_dir, "templates", "index.html")
     with open(html_path, "r", encoding="utf-8") as f:
-        return f.read()
+        return HTMLResponse(
+            content=f.read(),
+            headers={"Cache-Control": "no-store, no-cache, must-revalidate, max-age=0"},
+        )
 
 
 @app.post("/api/login")
 def login(req: LoginRequest):
     conn = get_db()
     user = conn.execute(
-        "SELECT username, full_name, role FROM users WHERE username=? AND password=?",
-        (req.username, req.password),
+        "SELECT username, full_name, role, COALESCE(target_ref, '') AS target_ref FROM users WHERE username=? AND password=?",
+        (req.username.strip(), req.password.strip()),
     ).fetchone()
     conn.close()
     if not user:
@@ -292,15 +306,31 @@ def create_record(req: RecordViolationRequest):
 
 
 @app.get("/api/records")
-def list_records():
+def list_records(role: Optional[str] = None, target_ref: Optional[str] = None):
     conn = get_db()
-    query = """
+    sql = """
     SELECT r.*, s.full_name, s.class_name, s.grade 
     FROM violation_records r
     LEFT JOIN students s ON r.student_code = s.student_code
-    ORDER BY r.id DESC
+    WHERE 1=1
     """
-    rows = conn.execute(query).fetchall()
+    params = []
+
+    if role == "gvcn":
+        if target_ref and target_ref.strip():
+            sql += " AND UPPER(TRIM(s.class_name)) = UPPER(TRIM(?))"
+            params.append(target_ref.strip())
+        else:
+            sql += " AND 1=0"
+    elif role == "phuhuynh":
+        if target_ref and target_ref.strip():
+            sql += " AND UPPER(TRIM(r.student_code)) = UPPER(TRIM(?)) AND r.status != 'rejected'"
+            params.append(target_ref.strip())
+        else:
+            sql += " AND 1=0"
+
+    sql += " ORDER BY r.id DESC"
+    rows = conn.execute(sql, params).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
@@ -318,7 +348,6 @@ def update_status(record_id: int, status: str):
 
 @app.post("/api/admin/import-students")
 async def import_students(file: UploadFile = File(...)):
-    # File Excel cần có các cột: MaHS, HoTen, Lop, Khoi, NgaySinh
     contents = await file.read()
     df = pd.read_excel(io.BytesIO(contents))
     conn = get_db()
@@ -344,9 +373,9 @@ async def import_students(file: UploadFile = File(...)):
 
 
 @app.get("/api/export-excel")
-def export_excel():
+def export_excel(role: Optional[str] = None, target_ref: Optional[str] = None):
     conn = get_db()
-    query = """
+    sql = """
     SELECT r.id AS 'ID', r.recorded_at AS 'Thời gian', s.student_code AS 'Mã HS', 
            s.full_name AS 'Họ tên', s.class_name AS 'Lớp', s.grade AS 'Khối',
            r.violation_names AS 'Lỗi vi phạm', r.total_points AS 'Điểm trừ',
@@ -355,7 +384,12 @@ def export_excel():
     LEFT JOIN students s ON r.student_code = s.student_code
     WHERE r.status != 'rejected'
     """
-    df = pd.read_sql_query(query, conn)
+    params = []
+    if role == "gvcn" and target_ref and target_ref.strip():
+        sql += " AND UPPER(TRIM(s.class_name)) = UPPER(TRIM(?))"
+        params.append(target_ref.strip())
+
+    df = pd.read_sql_query(sql, conn, params=params)
     conn.close()
 
     output = io.BytesIO()
@@ -377,7 +411,7 @@ def export_excel():
 def list_users():
     conn = get_db()
     rows = conn.execute(
-        "SELECT id, username, full_name, role FROM users ORDER BY id ASC"
+        "SELECT id, username, full_name, role, COALESCE(target_ref, '') AS target_ref FROM users ORDER BY id ASC"
     ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
@@ -389,11 +423,21 @@ def create_user(u: UserCreateUpdate):
         raise HTTPException(
             status_code=400, detail="Cần nhập mật khẩu cho tài khoản mới"
         )
+    ref_val = (u.target_ref or "").strip()
+    if u.role == "gvcn" and not ref_val:
+        raise HTTPException(
+            status_code=400, detail="Cần nhập Tên lớp phụ trách cho Giáo viên chủ nhiệm (VD: 10A1)"
+        )
+    if u.role == "phuhuynh" and not ref_val:
+        raise HTTPException(
+            status_code=400, detail="Cần nhập Mã học sinh của con cho Phụ huynh (VD: HS1001)"
+        )
+
     conn = get_db()
     try:
         conn.execute(
-            "INSERT INTO users (username, password, full_name, role) VALUES (?, ?, ?, ?)",
-            (u.username.strip(), u.password, u.full_name.strip(), u.role),
+            "INSERT INTO users (username, password, full_name, role, target_ref) VALUES (?, ?, ?, ?, ?)",
+            (u.username.strip(), u.password, u.full_name.strip(), u.role, ref_val),
         )
         conn.commit()
     except sqlite3.IntegrityError:
@@ -405,16 +449,26 @@ def create_user(u: UserCreateUpdate):
 
 @app.put("/api/admin/users/{user_id}")
 def update_user(user_id: int, u: UserCreateUpdate):
+    ref_val = (u.target_ref or "").strip()
+    if u.role == "gvcn" and not ref_val:
+        raise HTTPException(
+            status_code=400, detail="Cần nhập Tên lớp phụ trách cho Giáo viên chủ nhiệm (VD: 10A1)"
+        )
+    if u.role == "phuhuynh" and not ref_val:
+        raise HTTPException(
+            status_code=400, detail="Cần nhập Mã học sinh của con cho Phụ huynh (VD: HS1001)"
+        )
+
     conn = get_db()
     if u.password:
         conn.execute(
-            "UPDATE users SET username=?, password=?, full_name=?, role=? WHERE id=?",
-            (u.username.strip(), u.password, u.full_name.strip(), u.role, user_id),
+            "UPDATE users SET username=?, password=?, full_name=?, role=?, target_ref=? WHERE id=?",
+            (u.username.strip(), u.password, u.full_name.strip(), u.role, ref_val, user_id),
         )
     else:
         conn.execute(
-            "UPDATE users SET username=?, full_name=?, role=? WHERE id=?",
-            (u.username.strip(), u.full_name.strip(), u.role, user_id),
+            "UPDATE users SET username=?, full_name=?, role=?, target_ref=? WHERE id=?",
+            (u.username.strip(), u.full_name.strip(), u.role, ref_val, user_id),
         )
     conn.commit()
     conn.close()
