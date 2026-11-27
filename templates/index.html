@@ -7,6 +7,7 @@
     <script src="https://cdn.tailwindcss.com"></script>
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/@vladmandic/face-api/dist/face-api.min.js"></script>
 </head>
 <body class="bg-slate-100 min-h-screen font-sans text-slate-800">
 
@@ -44,21 +45,50 @@
 
         <main class="max-w-5xl mx-auto p-4 space-y-6">
 
-            <!-- PHÂN KHU 1: QUÉT THẺ & LỌC TÌM HỌC SINH VI PHẠM (Dành cho Tổ viên, Tổ trưởng, Admin) -->
+            <!-- PHÂN KHU 1: QUÉT THẺ QR / KHUÔN MẶT & LỌC TÌM HỌC SINH VI PHẠM -->
             <section id="scanner-section" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hidden">
-                <h3 class="font-bold text-lg text-blue-700 mb-3 border-b pb-2">1. Quét mã thẻ hoặc tìm học sinh vi phạm</h3>
+                <h3 class="font-bold text-lg text-blue-700 mb-3 border-b pb-2">1. Quét QR / Khuôn mặt hoặc tìm học sinh vi phạm</h3>
                 
                 <div class="grid md:grid-cols-2 gap-6">
-                    <!-- Cột Camera & Lọc chọn học sinh -->
-                    <div>
-                        <div id="reader" class="w-full rounded-lg overflow-hidden border bg-black"></div>
-                        <div class="mt-3 flex gap-2">
-                            <button onclick="startScanner()" class="flex-1 bg-emerald-600 text-white py-2 rounded-lg font-medium text-sm">Bật Camera Quét</button>
-                            <button onclick="stopScanner()" class="bg-slate-200 text-slate-700 px-4 py-2 rounded-lg text-sm">Tắt Cam</button>
+                    <!-- Cột Camera QR, Camera Khuôn mặt & Lọc chọn học sinh -->
+                    <div class="space-y-4">
+                        <!-- Khối Quét QR -->
+                        <div>
+                            <p class="text-xs font-semibold text-slate-600 uppercase mb-1.5">Quét mã QR trên thẻ học sinh</p>
+                            <div id="reader" class="w-full rounded-lg overflow-hidden border bg-black"></div>
+                            <div class="mt-2 flex gap-2">
+                                <button onclick="startScanner()" class="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white py-2 rounded-lg font-medium text-sm">Bật Camera QR</button>
+                                <button onclick="stopScanner()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-4 py-2 rounded-lg text-sm">Tắt QR</button>
+                            </div>
+                        </div>
+
+                        <!-- Khối Quét khuôn mặt nhận diện HS vi phạm -->
+                        <div class="pt-3 border-t">
+                            <div class="flex justify-between items-center mb-1.5">
+                                <p class="text-xs font-semibold text-indigo-700 uppercase">Quét khuôn mặt nhận diện học sinh</p>
+                                <span id="face-model-status" class="text-[11px] text-slate-500">Chưa nạp mô hình</span>
+                            </div>
+                            <div class="relative w-full rounded-lg overflow-hidden border bg-slate-900 aspect-video flex items-center justify-center">
+                                <video id="face-match-video" autoplay muted playsinline class="w-full h-full object-cover hidden"></video>
+                                <span id="face-match-placeholder" class="text-xs text-slate-400 px-3 text-center">Bấm "Bật Cam Khuôn mặt" để nhận diện học sinh đã đăng ký mẫu</span>
+                            </div>
+                            <div class="mt-2 flex flex-wrap gap-2">
+                                <button type="button" onclick="startFaceMatchCamera()" class="bg-indigo-600 hover:bg-indigo-700 text-white px-3 py-2 rounded-lg font-medium text-xs">
+                                    Bật Cam Khuôn mặt
+                                </button>
+                                <button type="button" onclick="recognizeCurrentFace(false)" class="flex-1 bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg font-medium text-xs">
+                                    Nhận diện ngay
+                                </button>
+                                <button type="button" onclick="stopFaceMatchCamera()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg text-xs">
+                                    Tắt Cam
+                                </button>
+                            </div>
+                            <p id="face-match-feedback" class="text-xs text-slate-600 mt-1.5"></p>
                         </div>
                         
-                        <div class="mt-4 pt-3 border-t space-y-2">
-                            <label class="text-xs font-semibold text-slate-600 uppercase block">Lọc học sinh theo lớp hoặc tên (khi không quét được QR)</label>
+                        <!-- Lọc danh sách học sinh -->
+                        <div class="pt-3 border-t space-y-2">
+                            <label class="text-xs font-semibold text-slate-600 uppercase block">Lọc học sinh theo lớp hoặc tên (khi không quét được)</label>
                             <div class="grid grid-cols-5 gap-2">
                                 <select id="filter-class" onchange="filterStudentsList()" class="col-span-2 border rounded-lg p-2 text-sm bg-white">
                                     <option value="">Tất cả các lớp</option>
@@ -71,7 +101,7 @@
                                 <button type="button" onclick="clearStudentFilter()" class="text-blue-600 hover:underline">Xóa bộ lọc</button>
                             </div>
 
-                            <div id="filtered-student-list" class="max-h-56 overflow-y-auto border rounded-lg bg-slate-50 divide-y divide-slate-200">
+                            <div id="filtered-student-list" class="max-h-52 overflow-y-auto border rounded-lg bg-slate-50 divide-y divide-slate-200">
                                 <div class="p-3 text-center text-xs text-slate-400">Đang tải...</div>
                             </div>
                         </div>
@@ -97,6 +127,122 @@
                             GHI NHẬN VI PHẠM
                         </button>
                     </div>
+                </div>
+            </section>
+
+            <!-- PHÂN KHU 1B: ĐIỂM DANH KHUÔN MẶT & ĐĂNG KÝ MẪU KHUÔN MẶT -->
+            <section id="face-attendance-section" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-6 hidden">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-2">
+                    <div>
+                        <h3 class="font-bold text-lg text-teal-700">2. Điểm danh khuôn mặt & Đăng ký mẫu khuôn mặt</h3>
+                        <p class="text-xs text-slate-500">Tự động ghi nhận Có mặt / Đi muộn theo khung giờ và thống kê sĩ số từng lớp</p>
+                    </div>
+                    <div class="flex flex-wrap items-center gap-2 text-xs">
+                        <label class="text-slate-600">Ngày:</label>
+                        <input type="date" id="att-date" onchange="loadAttendanceList()" class="border rounded-lg p-1.5 bg-white">
+                        <label class="text-slate-600">Tính đi muộn sau:</label>
+                        <input type="time" id="att-late-time" value="07:15" class="border rounded-lg p-1.5 bg-white">
+                        <select id="att-class-filter" onchange="loadAttendanceList()" class="border rounded-lg p-1.5 bg-white">
+                            <option value="">Tất cả các lớp</option>
+                        </select>
+                        <button onclick="exportAttendanceExcel()" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg font-medium">
+                            Xuất Excel điểm danh
+                        </button>
+                    </div>
+                </div>
+
+                <!-- Thống kê sĩ số nhanh -->
+                <div class="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                    <div class="p-3 rounded-lg bg-slate-50 border">
+                        <div class="text-xs text-slate-500">Tổng học sinh</div>
+                        <div id="att-sum-total" class="text-xl font-bold text-slate-800">0</div>
+                    </div>
+                    <div class="p-3 rounded-lg bg-emerald-50 border border-emerald-200">
+                        <div class="text-xs text-emerald-700">Có mặt</div>
+                        <div id="att-sum-present" class="text-xl font-bold text-emerald-700">0</div>
+                    </div>
+                    <div class="p-3 rounded-lg bg-amber-50 border border-amber-200">
+                        <div class="text-xs text-amber-700">Đi muộn</div>
+                        <div id="att-sum-late" class="text-xl font-bold text-amber-700">0</div>
+                    </div>
+                    <div class="p-3 rounded-lg bg-rose-50 border border-rose-200">
+                        <div class="text-xs text-rose-700">Chưa điểm danh / Vắng</div>
+                        <div id="att-sum-absent" class="text-xl font-bold text-rose-700">0</div>
+                    </div>
+                </div>
+
+                <div class="grid md:grid-cols-2 gap-6">
+                    <!-- Cột Camera điểm danh tự động -->
+                    <div id="att-cam-box" class="p-4 rounded-lg bg-slate-50 border space-y-3">
+                        <div class="flex justify-between items-center">
+                            <h4 class="font-semibold text-sm text-teal-800">Camera điểm danh khuôn mặt</h4>
+                            <label class="inline-flex items-center gap-1.5 text-xs text-slate-700 cursor-pointer">
+                                <input type="checkbox" id="att-auto-loop" checked class="rounded text-teal-600">
+                                <span>Tự quét liên tục</span>
+                            </label>
+                        </div>
+
+                        <div class="relative w-full rounded-lg overflow-hidden border bg-slate-900 aspect-video flex items-center justify-center">
+                            <video id="att-video" autoplay muted playsinline class="w-full h-full object-cover hidden"></video>
+                            <span id="att-video-placeholder" class="text-xs text-slate-400 px-3 text-center">Bấm "Bật Cam Điểm danh" để học sinh quét mặt</span>
+                        </div>
+
+                        <div class="flex gap-2">
+                            <button type="button" onclick="startAttendanceCamera()" class="flex-1 bg-teal-600 hover:bg-teal-700 text-white py-2 rounded-lg text-xs font-medium">
+                                Bật Cam Điểm danh
+                            </button>
+                            <button type="button" onclick="checkInOnceByFace()" class="bg-blue-600 hover:bg-blue-700 text-white px-3 py-2 rounded-lg text-xs font-medium">
+                                Chụp & Điểm danh
+                            </button>
+                            <button type="button" onclick="stopAttendanceCamera()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-2 rounded-lg text-xs">
+                                Tắt Cam
+                            </button>
+                        </div>
+                        <p id="att-status-msg" class="text-xs font-medium text-teal-700 min-h-[18px]"></p>
+                    </div>
+
+                    <!-- Cột Đăng ký mẫu khuôn mặt cho học sinh (Admin / Tổ trưởng) -->
+                    <div id="face-enroll-box" class="p-4 rounded-lg bg-slate-50 border space-y-3">
+                        <h4 class="font-semibold text-sm text-purple-800">Đăng ký / Cập nhật mẫu khuôn mặt học sinh</h4>
+                        <div class="grid grid-cols-5 gap-2">
+                            <select id="enroll-class" onchange="onEnrollClassChange()" class="col-span-2 border rounded-lg p-2 text-xs bg-white">
+                                <option value="">-- Chọn lớp --</option>
+                            </select>
+                            <select id="enroll-student" class="col-span-3 border rounded-lg p-2 text-xs bg-white">
+                                <option value="">-- Chọn học sinh --</option>
+                            </select>
+                        </div>
+
+                        <div class="flex flex-wrap gap-2">
+                            <button type="button" onclick="captureAndEnrollFace()" class="flex-1 bg-purple-600 hover:bg-purple-700 text-white py-2 px-3 rounded-lg text-xs font-medium">
+                                Chụp từ Cam & Lưu mẫu
+                            </button>
+                            <label class="bg-white hover:bg-slate-100 border text-slate-700 py-2 px-3 rounded-lg text-xs font-medium cursor-pointer">
+                                Tải ảnh chân dung
+                                <input type="file" id="enroll-img-file" accept="image/*" onchange="enrollFaceFromFile(event)" class="hidden">
+                            </label>
+                        </div>
+                        <p id="enroll-feedback" class="text-xs text-slate-600"></p>
+                    </div>
+                </div>
+
+                <!-- Bảng chi tiết điểm danh -->
+                <div class="overflow-x-auto max-h-80 overflow-y-auto border rounded-lg">
+                    <table class="w-full text-xs text-left border-collapse bg-white">
+                        <thead class="sticky top-0">
+                            <tr class="bg-teal-50 text-teal-900 border-b">
+                                <th class="p-2.5">Mã HS</th>
+                                <th class="p-2.5">Họ tên</th>
+                                <th class="p-2.5">Lớp</th>
+                                <th class="p-2.5 text-center">Mẫu mặt</th>
+                                <th class="p-2.5 text-center">Trạng thái</th>
+                                <th class="p-2.5 text-center">Giờ vào</th>
+                                <th class="p-2.5">Người ghi</th>
+                                <th id="att-action-th" class="p-2.5 text-right">Điểm danh nhanh</th>
+                            </tr>
+                        </thead>
+                        <tbody id="attendance-table" class="divide-y"></tbody>
+                    </table>
                 </div>
             </section>
 
@@ -137,7 +283,6 @@
                         </a>
                     </div>
 
-                    <!-- Import tài khoản hàng loạt từ Excel -->
                     <div class="p-3 bg-white rounded-lg border border-dashed border-blue-300 flex flex-wrap items-center gap-2">
                         <span class="text-xs font-semibold text-blue-700">Import hàng loạt từ Excel:</span>
                         <input type="file" id="users-excel-file" accept=".xlsx, .xls" class="text-xs border bg-slate-50 p-1.5 rounded-lg flex-1 min-w-[200px]">
@@ -146,7 +291,6 @@
                         </button>
                     </div>
 
-                    <!-- Thêm / Sửa lẻ từng tài khoản -->
                     <div class="grid sm:grid-cols-6 gap-2">
                         <input type="hidden" id="edit-user-id">
                         <input type="text" id="u-username" placeholder="Tên đăng nhập" class="border rounded-lg p-2 text-xs bg-white">
@@ -327,6 +471,376 @@
         let weeklyTrendChart = null;
         let allStudentsCache = [];
 
+        // Trạng thái khuôn mặt
+        let faceModelsLoaded = false;
+        let faceModelsLoadingPromise = null;
+        let faceMatchStream = null;
+        let attStream = null;
+        let attLoopTimer = null;
+        let lastCheckedFaceCode = "";
+        let lastCheckedFaceTime = 0;
+
+        const FACE_MODEL_URL = "https://cdn.jsdelivr.net/npm/@vladmandic/face-api/model";
+
+        async function ensureFaceModelsLoaded() {
+            if (faceModelsLoaded) return true;
+            if (typeof faceapi === "undefined") {
+                alert("Không tải được thư viện nhận diện khuôn mặt face-api.js. Kiểm tra kết nối mạng!");
+                return false;
+            }
+            if (!faceModelsLoadingPromise) {
+                faceModelsLoadingPromise = (async () => {
+                    updateFaceModelStatus("Đang tải mô hình khuôn mặt...");
+                    await Promise.all([
+                        faceapi.nets.tinyFaceDetector.loadFromUri(FACE_MODEL_URL),
+                        faceapi.nets.faceLandmark68Net.loadFromUri(FACE_MODEL_URL),
+                        faceapi.nets.faceRecognitionNet.loadFromUri(FACE_MODEL_URL),
+                    ]);
+                    faceModelsLoaded = true;
+                    updateFaceModelStatus("Sẵn sàng nhận diện");
+                    return true;
+                })().catch(err => {
+                    faceModelsLoadingPromise = null;
+                    updateFaceModelStatus("Lỗi tải mô hình");
+                    console.error(err);
+                    return false;
+                });
+            }
+            return await faceModelsLoadingPromise;
+        }
+
+        function updateFaceModelStatus(text) {
+            const el = document.getElementById("face-model-status");
+            if (el) el.innerText = text;
+        }
+
+        async function extractDescriptorFromMedia(mediaEl) {
+            const ok = await ensureFaceModelsLoaded();
+            if (!ok) return null;
+            const options = new faceapi.TinyFaceDetectorOptions({ inputSize: 224, scoreThreshold: 0.45 });
+            const detection = await faceapi
+                .detectSingleFace(mediaEl, options)
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            if (!detection || !detection.descriptor) return null;
+            return Array.from(detection.descriptor);
+        }
+
+        async function startFaceMatchCamera() {
+            const ok = await ensureFaceModelsLoaded();
+            if (!ok) return;
+            try {
+                stopFaceMatchCamera();
+                faceMatchStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                const video = document.getElementById("face-match-video");
+                const ph = document.getElementById("face-match-placeholder");
+                video.srcObject = faceMatchStream;
+                video.classList.remove("hidden");
+                ph.classList.add("hidden");
+                document.getElementById("face-match-feedback").innerText = "Camera đã bật. Đưa khuôn mặt vào khung rồi bấm 'Nhận diện ngay'.";
+            } catch (err) {
+                alert("Không mở được camera khuôn mặt (cần HTTPS/localhost và cấp quyền camera): " + err);
+            }
+        }
+
+        function stopFaceMatchCamera() {
+            if (faceMatchStream) {
+                faceMatchStream.getTracks().forEach(t => t.stop());
+                faceMatchStream = null;
+            }
+            const video = document.getElementById("face-match-video");
+            const ph = document.getElementById("face-match-placeholder");
+            if (video) {
+                video.srcObject = null;
+                video.classList.add("hidden");
+            }
+            if (ph) ph.classList.remove("hidden");
+        }
+
+        async function recognizeCurrentFace(silentIfNoFace = false) {
+            const video = document.getElementById("face-match-video");
+            const fb = document.getElementById("face-match-feedback");
+            if (!faceMatchStream || !video || video.readyState < 2) {
+                if (!silentIfNoFace) alert("Vui lòng bấm 'Bật Cam Khuôn mặt' trước!");
+                return null;
+            }
+
+            const descriptor = await extractDescriptorFromMedia(video);
+            if (!descriptor) {
+                if (!silentIfNoFace && fb) {
+                    fb.innerText = "Chưa phát hiện rõ khuôn mặt. Hãy giữ thẳng mặt và đủ ánh sáng.";
+                }
+                return null;
+            }
+
+            const selectedClass = document.getElementById("filter-class")?.value || "";
+            const res = await fetch("/api/face/match", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    descriptor,
+                    class_name: selectedClass || null,
+                    threshold: 0.58
+                })
+            });
+            const data = await res.json();
+            if (data.matched && data.student) {
+                displaySelectedStudent(data.student);
+                filterStudentsList();
+                if (navigator.vibrate) navigator.vibrate(150);
+                if (fb) fb.innerText = `Đã nhận diện: ${data.student.full_name} (${data.student.class_name}) — Độ khớp ~${data.confidence}%`;
+                return data.student;
+            } else {
+                if (!silentIfNoFace && fb) {
+                    fb.innerText = data.message || "Không khớp với học sinh nào đã đăng ký khuôn mặt.";
+                }
+                return null;
+            }
+        }
+
+        // --- ĐIỂM DANH KHUÔN MẶT ---
+        async function startAttendanceCamera() {
+            const ok = await ensureFaceModelsLoaded();
+            if (!ok) return;
+            try {
+                stopAttendanceCamera();
+                attStream = await navigator.mediaDevices.getUserMedia({
+                    video: { facingMode: "user", width: { ideal: 640 }, height: { ideal: 480 } },
+                    audio: false
+                });
+                const video = document.getElementById("att-video");
+                const ph = document.getElementById("att-video-placeholder");
+                video.srcObject = attStream;
+                video.classList.remove("hidden");
+                ph.classList.add("hidden");
+                document.getElementById("att-status-msg").innerText = "Đang bật camera điểm danh...";
+
+                attLoopTimer = setInterval(async () => {
+                    const autoLoop = document.getElementById("att-auto-loop")?.checked;
+                    if (!autoLoop || !attStream) return;
+                    await checkInOnceByFace(true);
+                }, 2200);
+            } catch (err) {
+                alert("Không mở được camera điểm danh: " + err);
+            }
+        }
+
+        function stopAttendanceCamera() {
+            if (attLoopTimer) {
+                clearInterval(attLoopTimer);
+                attLoopTimer = null;
+            }
+            if (attStream) {
+                attStream.getTracks().forEach(t => t.stop());
+                attStream = null;
+            }
+            const video = document.getElementById("att-video");
+            const ph = document.getElementById("att-video-placeholder");
+            if (video) {
+                video.srcObject = null;
+                video.classList.add("hidden");
+            }
+            if (ph) ph.classList.remove("hidden");
+        }
+
+        async function checkInOnceByFace(silentIfNoFace = false) {
+            const video = document.getElementById("att-video");
+            const msgEl = document.getElementById("att-status-msg");
+            if (!attStream || !video || video.readyState < 2) {
+                if (!silentIfNoFace) alert("Vui lòng bấm 'Bật Cam Điểm danh' trước!");
+                return;
+            }
+
+            const descriptor = await extractDescriptorFromMedia(video);
+            if (!descriptor) {
+                if (!silentIfNoFace && msgEl) {
+                    msgEl.innerText = "Không thấy khuôn mặt rõ ràng để điểm danh.";
+                }
+                return;
+            }
+
+            const clsFilter = document.getElementById("att-class-filter")?.value || "";
+            const res = await fetch("/api/face/match", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    descriptor,
+                    class_name: clsFilter || null,
+                    threshold: 0.58
+                })
+            });
+            const matchRes = await res.json();
+            if (!matchRes.matched || !matchRes.student) {
+                if (!silentIfNoFace && msgEl) {
+                    msgEl.innerText = "Khuôn mặt chưa khớp mẫu học sinh nào.";
+                }
+                return;
+            }
+
+            const code = matchRes.student.student_code;
+            const nowMs = Date.now();
+            if (code === lastCheckedFaceCode && (nowMs - lastCheckedFaceTime) < 6000) {
+                return;
+            }
+            lastCheckedFaceCode = code;
+            lastCheckedFaceTime = nowMs;
+
+            await markAttendanceForCode(code, true);
+        }
+
+        async function markAttendanceForCode(studentCode, isAutoFace = false) {
+            const attDate = document.getElementById("att-date")?.value || "";
+            const lateAfter = document.getElementById("att-late-time")?.value || "07:15";
+            const res = await fetch("/api/attendance/check-in", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    student_code: studentCode,
+                    attendance_date: attDate || null,
+                    late_after: lateAfter,
+                    recorded_by: currentUser.full_name
+                })
+            });
+            const data = await res.json();
+            const msgEl = document.getElementById("att-status-msg");
+            if (msgEl) msgEl.innerText = data.message || "Đã điểm danh";
+            if (!isAutoFace && data.message) alert(data.message);
+            if (isAutoFace && !data.already_checked && navigator.vibrate) navigator.vibrate(120);
+            await loadAttendanceList();
+        }
+
+        async function loadAttendanceList() {
+            const attDate = document.getElementById("att-date")?.value || new Date().toISOString().slice(0, 10);
+            if (document.getElementById("att-date") && !document.getElementById("att-date").value) {
+                document.getElementById("att-date").value = attDate;
+            }
+            const cls = document.getElementById("att-class-filter")?.value || "";
+            const params = new URLSearchParams({ attendance_date: attDate });
+            if (cls) params.set("class_name", cls);
+            if (currentUser?.role) params.set("role", currentUser.role);
+            if (currentUser?.target_ref) params.set("target_ref", currentUser.target_ref);
+
+            const res = await fetch(`/api/attendance?${params.toString()}`);
+            const data = await res.json();
+
+            document.getElementById("att-sum-total").innerText = data.summary?.total ?? 0;
+            document.getElementById("att-sum-present").innerText = data.summary?.present ?? 0;
+            document.getElementById("att-sum-late").innerText = data.summary?.late ?? 0;
+            document.getElementById("att-sum-absent").innerText = data.summary?.absent ?? 0;
+
+            const canCheckIn = ["tovien", "totruong", "admin"].includes(currentUser?.role);
+            document.getElementById("att-action-th")?.classList.toggle("hidden", !canCheckIn);
+
+            const statusBadge = {
+                present: `<span class="bg-emerald-100 text-emerald-800 px-2 py-0.5 rounded text-xs font-medium">Có mặt</span>`,
+                late: `<span class="bg-amber-100 text-amber-800 px-2 py-0.5 rounded text-xs font-medium">Đi muộn</span>`,
+                absent: `<span class="bg-rose-100 text-rose-800 px-2 py-0.5 rounded text-xs font-medium">Chưa điểm danh</span>`
+            };
+
+            const tbody = document.getElementById("attendance-table");
+            if (!data.items || !data.items.length) {
+                tbody.innerHTML = `<tr><td colspan="8" class="p-4 text-center text-slate-400">Không có dữ liệu điểm danh</td></tr>`;
+                return;
+            }
+
+            tbody.innerHTML = data.items.map(it => `
+                <tr class="hover:bg-slate-50">
+                    <td class="p-2.5 font-mono">${it.student_code}</td>
+                    <td class="p-2.5 font-medium">${it.full_name}</td>
+                    <td class="p-2.5">${it.class_name}</td>
+                    <td class="p-2.5 text-center">${it.has_face ? `<span class="text-teal-700 font-semibold">Đã có</span>` : `<span class="text-slate-400">Chưa</span>`}</td>
+                    <td class="p-2.5 text-center">${statusBadge[it.attendance_status] || it.attendance_status}</td>
+                    <td class="p-2.5 text-center font-mono text-slate-600">${it.check_in_time || "-"}</td>
+                    <td class="p-2.5 text-slate-600">${it.recorded_by || "-"}</td>
+                    ${canCheckIn ? `
+                        <td class="p-2.5 text-right">
+                            ${it.attendance_status === "absent"
+                                ? `<button onclick="markAttendanceForCode('${it.student_code}', false)" class="text-teal-700 hover:underline font-medium">Điểm danh</button>`
+                                : `<span class="text-xs text-slate-400">Đã ghi</span>`}
+                        </td>
+                    ` : ""}
+                </tr>
+            `).join("");
+        }
+
+        function exportAttendanceExcel() {
+            const attDate = document.getElementById("att-date")?.value || "";
+            const cls = document.getElementById("att-class-filter")?.value || "";
+            const params = new URLSearchParams();
+            if (attDate) params.set("attendance_date", attDate);
+            if (cls) params.set("class_name", cls);
+            if (currentUser?.role) params.set("role", currentUser.role);
+            if (currentUser?.target_ref) params.set("target_ref", currentUser.target_ref);
+            window.location.href = `/api/attendance/export-excel?${params.toString()}`;
+        }
+
+        async function onEnrollClassChange() {
+            const cls = document.getElementById("enroll-class").value;
+            const sel = document.getElementById("enroll-student");
+            const filtered = cls ? allStudentsCache.filter(s => s.class_name === cls) : allStudentsCache;
+            sel.innerHTML = `<option value="">-- Chọn học sinh (${filtered.length}) --</option>` +
+                filtered.map(s => `<option value="${s.student_code}">${s.full_name} (${s.student_code}) ${s.has_face ? "[Có mẫu]" : ""}</option>`).join("");
+        }
+
+        async function saveFaceDescriptorForStudent(code, descriptor) {
+            const fb = document.getElementById("enroll-feedback");
+            const res = await fetch("/api/face/enroll", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({ student_code: code, descriptor })
+            });
+            const data = await res.json();
+            if (!res.ok) {
+                alert(data.detail || "Không lưu được mẫu khuôn mặt");
+                return;
+            }
+            if (fb) fb.innerText = data.message;
+            alert(data.message);
+            await loadAllStudentsAndClasses();
+            await loadAttendanceList();
+        }
+
+        async function captureAndEnrollFace() {
+            const code = document.getElementById("enroll-student")?.value;
+            if (!code) return alert("Vui lòng chọn học sinh cần đăng ký mẫu khuôn mặt!");
+            const video = document.getElementById("att-video");
+            if (!attStream || !video || video.readyState < 2) {
+                return alert("Hãy bật camera điểm danh (bên trái) để chụp khuôn mặt rõ nét trước!");
+            }
+            const descriptor = await extractDescriptorFromMedia(video);
+            if (!descriptor) {
+                return alert("Không phát hiện khuôn mặt rõ ràng. Hãy thử lại ở nơi đủ sáng.");
+            }
+            await saveFaceDescriptorForStudent(code, descriptor);
+        }
+
+        async function enrollFaceFromFile(event) {
+            const file = event.target.files?.[0];
+            if (!file) return;
+            const code = document.getElementById("enroll-student")?.value;
+            if (!code) {
+                event.target.value = "";
+                return alert("Vui lòng chọn học sinh trước khi tải ảnh chân dung!");
+            }
+            const ok = await ensureFaceModelsLoaded();
+            if (!ok) return;
+
+            const img = await faceapi.bufferToImage(file);
+            const detection = await faceapi
+                .detectSingleFace(img, new faceapi.TinyFaceDetectorOptions({ inputSize: 320, scoreThreshold: 0.45 }))
+                .withFaceLandmarks()
+                .withFaceDescriptor();
+            event.target.value = "";
+            if (!detection || !detection.descriptor) {
+                return alert("Không nhận diện được khuôn mặt trong ảnh đã tải lên.");
+            }
+            await saveFaceDescriptorForStudent(code, Array.from(detection.descriptor));
+        }
+
+        // --- ĐĂNG NHẬP & PHÂN QUYỀN ---
         async function login() {
             const username = document.getElementById("username").value.trim();
             const password = document.getElementById("password").value.trim();
@@ -347,6 +861,8 @@
 
         function logout() {
             stopScanner();
+            stopFaceMatchCamera();
+            stopAttendanceCamera();
             currentUser = null;
             document.getElementById("app-screen").classList.add("hidden");
             document.getElementById("login-screen").classList.remove("hidden");
@@ -368,6 +884,9 @@
 
             const role = currentUser.role;
             document.getElementById("scanner-section").classList.toggle("hidden", !["tovien", "totruong", "admin"].includes(role));
+            document.getElementById("face-attendance-section").classList.toggle("hidden", role === "phuhuynh");
+            document.getElementById("att-cam-box").classList.toggle("hidden", !["tovien", "totruong", "admin"].includes(role));
+            document.getElementById("face-enroll-box").classList.toggle("hidden", !["totruong", "admin"].includes(role));
             document.getElementById("admin-section").classList.toggle("hidden", role !== "admin");
             document.getElementById("ranking-section").classList.toggle("hidden", role === "phuhuynh");
             document.getElementById("btn-export").classList.toggle("hidden", !["totruong", "giamhieu", "gvcn", "admin"].includes(role));
@@ -385,14 +904,15 @@
                 recSub.innerText = "";
             }
 
+            await loadAllStudentsAndClasses();
             if (["tovien", "totruong", "admin"].includes(role)) {
-                await loadAllStudentsAndClasses();
                 await loadViolationTypes();
             }
-            await loadRecords();
             if (role !== "phuhuynh") {
+                await loadAttendanceList();
                 await loadRankings();
             }
+            await loadRecords();
             if (role === "admin") {
                 await loadUsers();
             }
@@ -423,6 +943,31 @@
                     classSelect.value = prevClass;
                 }
             }
+
+            const attClsSelect = document.getElementById("att-class-filter");
+            if (attClsSelect) {
+                const prevAttCls = attClsSelect.value;
+                attClsSelect.innerHTML = `<option value="">Tất cả các lớp (${classes.length})</option>` +
+                    classes.map(cls => `<option value="${cls}">${cls}</option>`).join("");
+                if (currentUser?.role === "gvcn" && currentUser?.target_ref) {
+                    attClsSelect.value = currentUser.target_ref;
+                    attClsSelect.disabled = true;
+                } else if (prevAttCls && classes.includes(prevAttCls)) {
+                    attClsSelect.value = prevAttCls;
+                }
+            }
+
+            const enrollClsSelect = document.getElementById("enroll-class");
+            if (enrollClsSelect) {
+                const prevEnrollCls = enrollClsSelect.value;
+                enrollClsSelect.innerHTML = `<option value="">-- Chọn lớp --</option>` +
+                    classes.map(cls => `<option value="${cls}">${cls}</option>`).join("");
+                if (prevEnrollCls && classes.includes(prevEnrollCls)) {
+                    enrollClsSelect.value = prevEnrollCls;
+                }
+                await onEnrollClassChange();
+            }
+
             filterStudentsList();
         }
 
@@ -583,7 +1128,7 @@
         }
 
         async function submitRecord() {
-            if (!currentStudent) return alert("Vui lòng quét mã hoặc chọn học sinh trong danh sách trước!");
+            if (!currentStudent) return alert("Vui lòng quét QR/khuôn mặt hoặc chọn học sinh trong danh sách trước!");
             const checked = Array.from(document.querySelectorAll(".v-checkbox:checked")).map(cb => parseInt(cb.value));
             if (checked.length === 0) return alert("Vui lòng tích chọn ít nhất 1 lỗi vi phạm!");
 
@@ -677,6 +1222,7 @@
             const result = await res.json();
             alert(result.message);
             await loadAllStudentsAndClasses();
+            await loadAttendanceList();
             await loadRankings();
         }
 
