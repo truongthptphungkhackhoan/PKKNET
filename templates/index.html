@@ -40,10 +40,37 @@
                 <h2 class="font-bold text-lg">QUẢN LÝ NỀ NẾP THPT</h2>
                 <p id="user-info" class="text-xs text-blue-200"></p>
             </div>
-            <button onclick="logout()" class="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-sm">Đăng xuất</button>
+            <div class="flex items-center gap-2">
+                <!-- Nút hộp thư thông báo (GVCN / Phụ huynh) -->
+                <button id="noti-bell-btn" onclick="scrollToNotifications()" class="hidden relative bg-amber-500 hover:bg-amber-600 text-white px-3 py-1.5 rounded text-sm font-medium flex items-center gap-1.5">
+                    <span>Thông báo</span>
+                    <span id="noti-unread-badge" class="bg-red-600 text-white text-xs font-bold px-1.5 py-0.5 rounded-full">0</span>
+                </button>
+                <button onclick="logout()" class="bg-blue-800 hover:bg-blue-900 px-3 py-1.5 rounded text-sm">Đăng xuất</button>
+            </div>
         </header>
 
         <main class="max-w-5xl mx-auto p-4 space-y-6">
+
+            <!-- HỘP THƯ THÔNG BÁO DÀNH CHO GVCN & PHỤ HUYNH -->
+            <section id="notifications-inbox-section" class="bg-white p-5 rounded-xl shadow-sm border-l-4 border-amber-500 border-slate-200 hidden">
+                <div class="flex flex-wrap justify-between items-center gap-2 mb-3 border-b pb-2.5">
+                    <div>
+                        <h3 class="font-bold text-lg text-amber-700 flex items-center gap-2">
+                            <span>Hộp thư thông báo vi phạm nề nếp</span>
+                            <span id="noti-inbox-counter" class="text-xs bg-amber-100 text-amber-800 px-2 py-0.5 rounded-full font-semibold">0 chưa đọc</span>
+                        </h3>
+                        <p class="text-xs text-slate-500">Tự động cập nhật khi có vi phạm mới hoặc khi Tổ trưởng chốt duyệt vi phạm</p>
+                    </div>
+                    <div class="flex gap-2">
+                        <button onclick="loadUserNotifications()" class="bg-slate-200 hover:bg-slate-300 text-slate-700 px-3 py-1.5 rounded-lg text-xs font-medium">Làm mới</button>
+                        <button onclick="markAllNotificationsRead()" class="bg-amber-600 hover:bg-amber-700 text-white px-3 py-1.5 rounded-lg text-xs font-medium">Đánh dấu đã đọc hết</button>
+                    </div>
+                </div>
+                <div id="notifications-list" class="space-y-2 max-h-80 overflow-y-auto pr-1">
+                    <div class="p-3 text-center text-xs text-slate-400">Đang tải thông báo...</div>
+                </div>
+            </section>
 
             <!-- PHÂN KHU 1: QUÉT THẺ QR / KHUÔN MẶT & LỌC TÌM HỌC SINH VI PHẠM -->
             <section id="scanner-section" class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 hidden">
@@ -108,7 +135,7 @@
                     </div>
 
                     <!-- Cột Thông tin HS & Tích lỗi -->
-                    <div class="bg-slate-50 p-4 rounded-lg border">
+                    <div id="violation-form-box" class="bg-slate-50 p-4 rounded-lg border transition-all duration-300">
                         <div id="student-card" class="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg hidden">
                             <p class="text-xs text-blue-600 font-bold uppercase">Học sinh đang chọn</p>
                             <p id="st-name" class="text-lg font-bold text-slate-900"></p>
@@ -124,7 +151,7 @@
                         <input type="text" id="record-note" placeholder="Ghi chú thêm (nếu có)..." class="w-full border rounded-lg p-2 text-sm mt-3">
                         
                         <button onclick="submitRecord()" class="w-full mt-4 bg-red-600 hover:bg-red-700 text-white font-bold py-3 rounded-lg shadow transition">
-                            GHI NHẬN VI PHẠM
+                            GHI NHẬN VI PHẠM & GỬI THÔNG BÁO
                         </button>
                     </div>
                 </div>
@@ -428,9 +455,9 @@
                 </div>
             </section>
 
-            <!-- PHÂN KHU 4: DANH SÁCH VI PHẠM & BÁO CÁO -->
-            <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200">
-                <div class="flex flex-wrap justify-between items-center gap-2 mb-4 border-b pb-3">
+            <!-- PHÂN KHU 4: DANH SÁCH VI PHẠM, GỬI THÔNG BÁO & BÁO CÁO -->
+            <section class="bg-white p-5 rounded-xl shadow-sm border border-slate-200 space-y-5">
+                <div class="flex flex-wrap justify-between items-center gap-2 border-b pb-3">
                     <div>
                         <h3 id="records-title" class="font-bold text-lg text-slate-800">Nhật ký vi phạm & Xử lý</h3>
                         <p id="records-subtitle" class="text-xs text-slate-500"></p>
@@ -438,6 +465,23 @@
                     <div class="flex gap-2">
                         <button onclick="loadRecords()" class="bg-slate-200 hover:bg-slate-300 px-3 py-1.5 rounded-lg text-sm font-medium">Làm mới</button>
                         <button onclick="exportViolationsExcel()" id="btn-export" class="bg-emerald-600 hover:bg-emerald-700 text-white px-3 py-1.5 rounded-lg text-sm font-medium hidden">Xuất báo cáo vi phạm</button>
+                    </div>
+                </div>
+
+                <!-- Khung gửi thông báo nhắc nhở tùy chỉnh tới GVCN & Phụ huynh (Tổ trưởng, Giám hiệu, Admin) -->
+                <div id="manual-notify-box" class="p-4 bg-amber-50/70 border border-amber-200 rounded-lg space-y-2 hidden">
+                    <h4 class="font-semibold text-sm text-amber-900">Gửi thông báo trực tiếp tới GVCN & Phụ huynh học sinh</h4>
+                    <div class="grid sm:grid-cols-6 gap-2">
+                        <select id="noti-class-select" onchange="onNotiClassChange()" class="sm:col-span-1 border rounded-lg p-2 text-xs bg-white">
+                            <option value="">-- Lớp --</option>
+                        </select>
+                        <select id="noti-student-select" class="sm:col-span-2 border rounded-lg p-2 text-xs bg-white">
+                            <option value="">-- Chọn học sinh --</option>
+                        </select>
+                        <input type="text" id="noti-custom-msg" placeholder="Nội dung thông báo nhắc nhở..." class="sm:col-span-2 border rounded-lg p-2 text-xs bg-white">
+                        <button onclick="sendManualNotification()" class="bg-amber-600 hover:bg-amber-700 text-white rounded-lg text-xs font-medium py-2 px-3">
+                            Gửi thông báo
+                        </button>
                     </div>
                 </div>
 
@@ -470,6 +514,7 @@
         let latestHistoryData = null;
         let weeklyTrendChart = null;
         let allStudentsCache = [];
+        let notiPollTimer = null;
 
         // Trạng thái khuôn mặt
         let faceModelsLoaded = false;
@@ -840,6 +885,101 @@
             await saveFaceDescriptorForStudent(code, Array.from(detection.descriptor));
         }
 
+        // --- HỘP THƯ THÔNG BÁO GVCN & PHỤ HUYNH ---
+        function scrollToNotifications() {
+            const sec = document.getElementById("notifications-inbox-section");
+            if (sec) sec.scrollIntoView({ behavior: "smooth" });
+        }
+
+        async function loadUserNotifications() {
+            if (!currentUser || !["gvcn", "phuhuynh"].includes(currentUser.role)) return;
+            const res = await fetch(`/api/notifications?username=${encodeURIComponent(currentUser.username)}`);
+            const data = await res.json();
+
+            const badge = document.getElementById("noti-unread-badge");
+            const counter = document.getElementById("noti-inbox-counter");
+            if (badge) badge.innerText = data.unread_count ?? 0;
+            if (counter) counter.innerText = `${data.unread_count ?? 0} chưa đọc`;
+
+            const listEl = document.getElementById("notifications-list");
+            if (!listEl) return;
+
+            if (!data.items || !data.items.length) {
+                listEl.innerHTML = `<div class="p-3 text-center text-xs text-slate-400">Chưa có thông báo nào</div>`;
+                return;
+            }
+
+            listEl.innerHTML = data.items.map(n => {
+                const unreadStyle = n.is_read === 0
+                    ? "bg-amber-50 border-amber-300"
+                    : "bg-slate-50 border-slate-200 opacity-85";
+                return `
+                    <div class="p-3 rounded-lg border ${unreadStyle} flex flex-wrap justify-between items-start gap-2">
+                        <div class="space-y-1 flex-1">
+                            <div class="flex items-center gap-2">
+                                ${n.is_read === 0 ? `<span class="inline-block w-2 h-2 rounded-full bg-red-600"></span>` : ""}
+                                <span class="font-semibold text-sm text-slate-900">${n.title}</span>
+                                <span class="text-[11px] text-slate-400">${n.created_at}</span>
+                            </div>
+                            <p class="text-xs text-slate-700 leading-relaxed">${n.message}</p>
+                        </div>
+                        ${n.is_read === 0 ? `
+                            <button onclick="markNotificationRead(${n.id})" class="text-xs text-blue-600 hover:underline font-medium shrink-0">
+                                Đánh dấu đã đọc
+                            </button>
+                        ` : `<span class="text-[11px] text-slate-400 shrink-0">Đã đọc</span>`}
+                    </div>
+                `;
+            }).join("");
+        }
+
+        async function markNotificationRead(id) {
+            await fetch(`/api/notifications/${id}/read`, { method: "PUT" });
+            await loadUserNotifications();
+        }
+
+        async function markAllNotificationsRead() {
+            if (!currentUser) return;
+            await fetch(`/api/notifications/read-all?username=${encodeURIComponent(currentUser.username)}`, { method: "PUT" });
+            await loadUserNotifications();
+        }
+
+        async function sendRecordNotification(recordId) {
+            const res = await fetch(`/api/records/${recordId}/notify`, { method: "POST" });
+            const data = await res.json();
+            alert(data.message || "Đã xử lý gửi thông báo");
+        }
+
+        function onNotiClassChange() {
+            const cls = document.getElementById("noti-class-select")?.value || "";
+            const stSel = document.getElementById("noti-student-select");
+            if (!stSel) return;
+            const filtered = cls ? allStudentsCache.filter(s => s.class_name === cls) : allStudentsCache;
+            stSel.innerHTML = `<option value="">-- Chọn học sinh (${filtered.length}) --</option>` +
+                filtered.map(s => `<option value="${s.student_code}">${s.full_name} (${s.class_name} - ${s.student_code})</option>`).join("");
+        }
+
+        async function sendManualNotification() {
+            const code = document.getElementById("noti-student-select")?.value;
+            const msg = (document.getElementById("noti-custom-msg")?.value || "").trim();
+            if (!code) return alert("Vui lòng chọn học sinh!");
+            if (!msg) return alert("Vui lòng nhập nội dung thông báo!");
+
+            const res = await fetch("/api/notifications/send", {
+                method: "POST",
+                headers: { "Content-Type": "application/json" },
+                body: JSON.stringify({
+                    student_code: code,
+                    title: `Nhắc nhở nề nếp từ ${currentUser.full_name}`,
+                    message: msg
+                })
+            });
+            const data = await res.json();
+            if (!res.ok) return alert(data.detail || "Không gửi được thông báo");
+            document.getElementById("noti-custom-msg").value = "";
+            alert(data.message);
+        }
+
         // --- ĐĂNG NHẬP & PHÂN QUYỀN ---
         async function login() {
             const username = document.getElementById("username").value.trim();
@@ -863,6 +1003,10 @@
             stopScanner();
             stopFaceMatchCamera();
             stopAttendanceCamera();
+            if (notiPollTimer) {
+                clearInterval(notiPollTimer);
+                notiPollTimer = null;
+            }
             currentUser = null;
             document.getElementById("app-screen").classList.add("hidden");
             document.getElementById("login-screen").classList.remove("hidden");
@@ -883,6 +1027,11 @@
             document.getElementById("user-info").innerText = `${currentUser.full_name} — Vai trò: ${roleNames[currentUser.role] || currentUser.role}`;
 
             const role = currentUser.role;
+            const isRecipient = ["gvcn", "phuhuynh"].includes(role);
+            document.getElementById("noti-bell-btn").classList.toggle("hidden", !isRecipient);
+            document.getElementById("notifications-inbox-section").classList.toggle("hidden", !isRecipient);
+            document.getElementById("manual-notify-box").classList.toggle("hidden", !["totruong", "giamhieu", "admin"].includes(role));
+
             document.getElementById("scanner-section").classList.toggle("hidden", !["tovien", "totruong", "admin"].includes(role));
             document.getElementById("face-attendance-section").classList.toggle("hidden", role === "phuhuynh");
             document.getElementById("att-cam-box").classList.toggle("hidden", !["tovien", "totruong", "admin"].includes(role));
@@ -907,6 +1056,11 @@
             await loadAllStudentsAndClasses();
             if (["tovien", "totruong", "admin"].includes(role)) {
                 await loadViolationTypes();
+            }
+            if (isRecipient) {
+                await loadUserNotifications();
+                if (notiPollTimer) clearInterval(notiPollTimer);
+                notiPollTimer = setInterval(loadUserNotifications, 15000);
             }
             if (role !== "phuhuynh") {
                 await loadAttendanceList();
@@ -966,6 +1120,17 @@
                     enrollClsSelect.value = prevEnrollCls;
                 }
                 await onEnrollClassChange();
+            }
+
+            const notiClsSelect = document.getElementById("noti-class-select");
+            if (notiClsSelect) {
+                const prevNotiCls = notiClsSelect.value;
+                notiClsSelect.innerHTML = `<option value="">-- Tất cả lớp --</option>` +
+                    classes.map(cls => `<option value="${cls}">${cls}</option>`).join("");
+                if (prevNotiCls && classes.includes(prevNotiCls)) {
+                    notiClsSelect.value = prevNotiCls;
+                }
+                onNotiClassChange();
             }
 
             filterStudentsList();
@@ -1029,12 +1194,25 @@
             }
         }
 
-        function displaySelectedStudent(student) {
+        function scrollToViolationSection() {
+            const box = document.getElementById("violation-form-box") || document.getElementById("student-card");
+            if (!box) return;
+            box.scrollIntoView({ behavior: "smooth", block: "start" });
+            box.classList.add("ring-2", "ring-blue-500");
+            setTimeout(() => {
+                box.classList.remove("ring-2", "ring-blue-500");
+            }, 1400);
+        }
+
+        function displaySelectedStudent(student, autoScroll = true) {
             currentStudent = student;
             document.getElementById("student-placeholder").classList.add("hidden");
             document.getElementById("student-card").classList.remove("hidden");
             document.getElementById("st-name").innerText = `${currentStudent.full_name} (${currentStudent.student_code})`;
             document.getElementById("st-meta").innerText = `Lớp: ${currentStudent.class_name} | Khối: ${currentStudent.grade} | NS: ${currentStudent.dob || "-"}`;
+            if (autoScroll) {
+                setTimeout(scrollToViolationSection, 120);
+            }
         }
 
         async function loadViolationTypes() {
@@ -1142,8 +1320,9 @@
                     note: document.getElementById("record-note").value
                 })
             });
+            const data = await res.json();
             if (res.ok) {
-                alert("Đã ghi nhận vi phạm thành công!");
+                alert(data.message || "Đã ghi nhận vi phạm thành công!");
                 document.querySelectorAll(".v-checkbox").forEach(cb => cb.checked = false);
                 document.getElementById("record-note").value = "";
                 currentStudent = null;
@@ -1174,14 +1353,16 @@
             }
 
             tbody.innerHTML = data.map(r => {
-                let actions = "";
+                let actions = [];
                 if (["totruong", "admin"].includes(currentUser.role) && r.status === "pending") {
-                    actions = `
-                        <button onclick="setStatus(${r.id}, 'approved')" class="text-emerald-600 hover:underline font-medium mr-2">Duyệt</button>
-                        <button onclick="setStatus(${r.id}, 'rejected')" class="text-red-600 hover:underline font-medium">Hủy</button>
-                    `;
+                    actions.push(`<button onclick="setStatus(${r.id}, 'approved')" class="text-emerald-600 hover:underline font-medium">Duyệt</button>`);
+                    actions.push(`<button onclick="setStatus(${r.id}, 'rejected')" class="text-red-600 hover:underline font-medium">Hủy</button>`);
                 } else if (currentUser.role === "tovien" && r.recorded_by === currentUser.full_name && r.status === "pending") {
-                    actions = `<button onclick="setStatus(${r.id}, 'rejected')" class="text-red-600 hover:underline text-xs">Xóa nhầm</button>`;
+                    actions.push(`<button onclick="setStatus(${r.id}, 'rejected')" class="text-red-600 hover:underline text-xs">Xóa nhầm</button>`);
+                }
+
+                if (["tovien", "totruong", "giamhieu", "admin"].includes(currentUser.role) && r.status !== "rejected") {
+                    actions.push(`<button onclick="sendRecordNotification(${r.id})" class="text-amber-700 hover:underline font-medium text-xs">Báo PH/GVCN</button>`);
                 }
 
                 return `
@@ -1193,7 +1374,7 @@
                         <td class="p-2.5 text-center font-bold text-red-600">-${r.total_points}</td>
                         <td class="p-2.5 text-xs">${r.recorded_by}</td>
                         <td class="p-2.5">${statusBadges[r.status]}</td>
-                        <td class="p-2.5 text-right">${actions}</td>
+                        <td class="p-2.5 text-right space-x-2">${actions.join("")}</td>
                     </tr>
                 `;
             }).join("");
@@ -1207,7 +1388,11 @@
         }
 
         async function setStatus(id, status) {
-            await fetch(`/api/records/${id}/status?status=${status}`, { method: "PUT" });
+            const res = await fetch(`/api/records/${id}/status?status=${status}`, { method: "PUT" });
+            const data = await res.json();
+            if (data.notifications_sent > 0) {
+                alert(data.message);
+            }
             await loadRecords();
             await loadRankings();
         }
