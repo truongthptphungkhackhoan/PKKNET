@@ -1,4 +1,6 @@
 import io
+import json
+import math
 import os
 import sqlite3
 from datetime import datetime, timedelta
@@ -41,8 +43,6 @@ def init_db():
     cur = conn.cursor()
 
     # Bảng tài khoản
-    # role: 'tovien', 'totruong', 'giamhieu', 'gvcn', 'phuhuynh', 'admin'
-    # target_ref: lưu tên lớp phụ trách (đối với 'gvcn', VD: '10A1') hoặc Mã HS (đối với 'phuhuynh', VD: 'HS1001')
     cur.execute("""
     CREATE TABLE IF NOT EXISTS users (
         id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -53,7 +53,6 @@ def init_db():
         target_ref TEXT DEFAULT ''
     )""")
 
-    # Bổ sung cột target_ref nếu DB cũ chưa có
     cols = [r[1] for r in cur.execute("PRAGMA table_info(users)").fetchall()]
     if "target_ref" not in cols:
         cur.execute("ALTER TABLE users ADD COLUMN target_ref TEXT DEFAULT ''")
@@ -65,8 +64,13 @@ def init_db():
         full_name TEXT,
         class_name TEXT,
         grade TEXT,
-        dob TEXT
+        dob TEXT,
+        face_descriptor TEXT DEFAULT ''
     )""")
+
+    scols = [r[1] for r in cur.execute("PRAGMA table_info(students)").fetchall()]
+    if "face_descriptor" not in scols:
+        cur.execute("ALTER TABLE students ADD COLUMN face_descriptor TEXT DEFAULT ''")
 
     # Bảng danh mục lỗi
     cur.execute("""
@@ -86,7 +90,19 @@ def init_db():
         recorded_by TEXT,
         recorded_at TEXT,
         note TEXT,
-        status TEXT DEFAULT 'pending' -- 'pending', 'approved', 'rejected'
+        status TEXT DEFAULT 'pending'
+    )""")
+
+    # Bảng điểm danh khuôn mặt
+    cur.execute("""
+    CREATE TABLE IF NOT EXISTS attendance_records (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        student_code TEXT,
+        attendance_date TEXT,
+        check_in_time TEXT,
+        status TEXT DEFAULT 'present', -- 'present', 'late'
+        recorded_by TEXT,
+        UNIQUE(student_code, attendance_date)
     )""")
 
     # Tạo tài khoản mặc định nếu chưa có
@@ -122,12 +138,13 @@ def init_db():
 
     # Tạo 3 học sinh mẫu để test ngay
     students_seed = [
-        ("HS1001", "Lê Minh Khôi", "10A1", "10", "12/05/2010"),
-        ("HS1002", "Phạm Thu Hà", "10A1", "10", "20/08/2010"),
-        ("HS1101", "Hoàng Gia Bảo", "11A2", "11", "03/11/2009"),
+        ("HS1001", "Lê Minh Khôi", "10A1", "10", "12/05/2010", ""),
+        ("HS1002", "Phạm Thu Hà", "10A1", "10", "20/08/2010", ""),
+        ("HS1101", "Hoàng Gia Bảo", "11A2", "11", "03/11/2009", ""),
     ]
     cur.executemany(
-        "INSERT OR IGNORE INTO students VALUES (?, ?, ?, ?, ?)", students_seed
+        "INSERT OR IGNORE INTO students (student_code, full_name, class_name, grade, dob, face_descriptor) VALUES (?, ?, ?, ?, ?, ?)",
+        students_seed,
     )
 
     conn.commit()
@@ -154,13 +171,37 @@ class UserCreateUpdate(BaseModel):
     username: str
     password: Optional[str] = None
     full_name: str
-    role: str  # 'tovien', 'totruong', 'giamhieu', 'gvcn', 'phuhuynh', 'admin'
+    role: str
     target_ref: Optional[str] = ""
 
 
 class ViolationTypeCreate(BaseModel):
     name: str
     points: int
+
+
+class EnrollFaceRequest(BaseModel):
+    student_code: str
+    descriptor: List[float]
+
+
+class MatchFaceRequest(BaseModel):
+    descriptor: List[float]
+    class_name: Optional[str] = None
+    threshold: Optional[float] = 0.58
+
+
+class AttendanceCheckInRequest(BaseModel):
+    student_code: str
+    attendance_date: Optional[str] = None
+    late_after: Optional[str] = "07:15"
+    recorded_by: str
+
+
+def euclidean_distance(v1: List[float], v2: List[float]) -> float:
+    if not v1 or not v2 or len(v1) != len(v2):
+        return 999.0
+    return math.sqrt(sum((float(a) - float(b)) ** 2 for a, b in zip(v1, v2)))
 
 
 # --- API ENDPOINTS ---
@@ -201,7 +242,11 @@ def get_classes():
 @app.get("/api/students")
 def get_students(class_name: Optional[str] = None, q: Optional[str] = None):
     conn = get_db()
-    sql = "SELECT * FROM students WHERE 1=1"
+    sql = """
+    SELECT student_code, full_name, class_name, grade, dob,
+           CASE WHEN face_descriptor IS NOT NULL AND TRIM(face_descriptor) != '' THEN 1 ELSE 0 END AS has_face
+    FROM students WHERE 1=1
+    """
     params = []
 
     if class_name and class_name.strip():
@@ -223,12 +268,260 @@ def get_students(class_name: Optional[str] = None, q: Optional[str] = None):
 def get_student(code: str):
     conn = get_db()
     st = conn.execute(
-        "SELECT * FROM students WHERE student_code=?", (code.strip(),)
+        """
+        SELECT student_code, full_name, class_name, grade, dob,
+               CASE WHEN face_descriptor IS NOT NULL AND TRIM(face_descriptor) != '' THEN 1 ELSE 0 END AS has_face
+        FROM students WHERE student_code=?
+        """,
+        (code.strip(),),
     ).fetchone()
     conn.close()
     if not st:
         raise HTTPException(status_code=404, detail="Không tìm thấy mã học sinh này!")
     return dict(st)
+
+
+# --- KHUÔN MẶT: ĐĂNG KÝ MẪU & NHẬN DIỆN ---
+@app.post("/api/face/enroll")
+def enroll_face(req: EnrollFaceRequest):
+    code = req.student_code.strip()
+    if not code or not req.descriptor or len(req.descriptor) < 32:
+        raise HTTPException(status_code=400, detail="Dữ liệu đặc trưng khuôn mặt không hợp lệ")
+
+    conn = get_db()
+    st = conn.execute("SELECT student_code, full_name, class_name FROM students WHERE student_code=?", (code,)).fetchone()
+    if not st:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Không tìm thấy học sinh")
+
+    conn.execute(
+        "UPDATE students SET face_descriptor=? WHERE student_code=?",
+        (json.dumps([float(x) for x in req.descriptor]), code),
+    )
+    conn.commit()
+    conn.close()
+    return {"message": f"Đã lưu mẫu khuôn mặt cho {st['full_name']} ({st['class_name']})!"}
+
+
+@app.post("/api/face/match")
+def match_face(req: MatchFaceRequest):
+    if not req.descriptor or len(req.descriptor) < 32:
+        raise HTTPException(status_code=400, detail="Vector khuôn mặt không hợp lệ")
+
+    conn = get_db()
+    sql = """
+    SELECT student_code, full_name, class_name, grade, dob, face_descriptor
+    FROM students
+    WHERE face_descriptor IS NOT NULL AND TRIM(face_descriptor) != ''
+    """
+    params = []
+    if req.class_name and req.class_name.strip():
+        sql += " AND class_name = ?"
+        params.append(req.class_name.strip())
+
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    if not rows:
+        return {"matched": False, "message": "Chưa có học sinh nào đăng ký mẫu khuôn mặt"}
+
+    best_match = None
+    best_dist = 999.0
+
+    for r in rows:
+        try:
+            stored_vec = json.loads(r["face_descriptor"])
+        except Exception:
+            continue
+        dist = euclidean_distance(req.descriptor, stored_vec)
+        if dist < best_dist:
+            best_dist = dist
+            best_match = r
+
+    thresh = float(req.threshold or 0.58)
+    confidence = max(0, min(100, round((1.0 - min(best_dist, 1.0)) * 100, 1)))
+
+    if best_match and best_dist <= thresh:
+        return {
+            "matched": True,
+            "distance": round(best_dist, 4),
+            "confidence": confidence,
+            "student": {
+                "student_code": best_match["student_code"],
+                "full_name": best_match["full_name"],
+                "class_name": best_match["class_name"],
+                "grade": best_match["grade"],
+                "dob": best_match["dob"],
+                "has_face": 1,
+            },
+        }
+
+    return {
+        "matched": False,
+        "distance": round(best_dist, 4) if best_match else None,
+        "confidence": confidence,
+        "message": "Không nhận diện được khuôn mặt khớp với dữ liệu đã đăng ký",
+    }
+
+
+# --- ĐIỂM DANH KHUÔN MẶT ---
+@app.post("/api/attendance/check-in")
+def attendance_check_in(req: AttendanceCheckInRequest):
+    code = req.student_code.strip()
+    att_date = (req.attendance_date or datetime.now().strftime("%Y-%m-%d")).strip()
+    now_dt = datetime.now()
+    check_time = now_dt.strftime("%H:%M:%S")
+    hhmm = now_dt.strftime("%H:%M")
+
+    late_limit = (req.late_after or "07:15").strip()
+    status = "late" if hhmm > late_limit else "present"
+
+    conn = get_db()
+    st = conn.execute(
+        "SELECT student_code, full_name, class_name FROM students WHERE student_code=?",
+        (code,),
+    ).fetchone()
+    if not st:
+        conn.close()
+        raise HTTPException(status_code=404, detail="Không tìm thấy học sinh")
+
+    existing = conn.execute(
+        "SELECT id, check_in_time, status FROM attendance_records WHERE student_code=? AND attendance_date=?",
+        (code, att_date),
+    ).fetchone()
+
+    if existing:
+        conn.close()
+        return {
+            "already_checked": True,
+            "message": f"{st['full_name']} ({st['class_name']}) đã điểm danh lúc {existing['check_in_time']}",
+            "student_code": code,
+            "full_name": st["full_name"],
+            "class_name": st["class_name"],
+            "check_in_time": existing["check_in_time"],
+            "status": existing["status"],
+        }
+
+    conn.execute(
+        """
+        INSERT INTO attendance_records (student_code, attendance_date, check_in_time, status, recorded_by)
+        VALUES (?, ?, ?, ?, ?)
+        """,
+        (code, att_date, check_time, status, req.recorded_by),
+    )
+    conn.commit()
+    conn.close()
+
+    return {
+        "already_checked": False,
+        "message": f"Đã điểm danh: {st['full_name']} ({st['class_name']}) — {'Đi muộn' if status == 'late' else 'Có mặt'}",
+        "student_code": code,
+        "full_name": st["full_name"],
+        "class_name": st["class_name"],
+        "check_in_time": check_time,
+        "status": status,
+    }
+
+
+@app.get("/api/attendance")
+def list_attendance(
+    attendance_date: Optional[str] = None,
+    class_name: Optional[str] = None,
+    role: Optional[str] = None,
+    target_ref: Optional[str] = None,
+):
+    att_date = (attendance_date or datetime.now().strftime("%Y-%m-%d")).strip()
+    effective_class = (class_name or "").strip()
+    if role == "gvcn" and target_ref and target_ref.strip():
+        effective_class = target_ref.strip()
+
+    conn = get_db()
+    sql = """
+    SELECT s.student_code, s.full_name, s.class_name, s.grade,
+           CASE WHEN s.face_descriptor IS NOT NULL AND TRIM(s.face_descriptor) != '' THEN 1 ELSE 0 END AS has_face,
+           a.id AS attendance_id, a.check_in_time, a.recorded_by,
+           CASE
+               WHEN a.id IS NULL THEN 'absent'
+               ELSE a.status
+           END AS attendance_status
+    FROM students s
+    LEFT JOIN attendance_records a
+           ON s.student_code = a.student_code AND a.attendance_date = ?
+    WHERE 1=1
+    """
+    params = [att_date]
+
+    if role == "phuhuynh" and target_ref and target_ref.strip():
+        sql += " AND UPPER(TRIM(s.student_code)) = UPPER(TRIM(?))"
+        params.append(target_ref.strip())
+    elif effective_class:
+        sql += " AND UPPER(TRIM(s.class_name)) = UPPER(TRIM(?))"
+        params.append(effective_class)
+
+    sql += " ORDER BY s.class_name ASC, s.full_name ASC"
+    rows = conn.execute(sql, params).fetchall()
+    conn.close()
+
+    items = [dict(r) for r in rows]
+    present_cnt = sum(1 for x in items if x["attendance_status"] == "present")
+    late_cnt = sum(1 for x in items if x["attendance_status"] == "late")
+    absent_cnt = sum(1 for x in items if x["attendance_status"] == "absent")
+
+    return {
+        "attendance_date": att_date,
+        "class_name": effective_class,
+        "summary": {
+            "total": len(items),
+            "present": present_cnt,
+            "late": late_cnt,
+            "absent": absent_cnt,
+        },
+        "items": items,
+    }
+
+
+@app.get("/api/attendance/export-excel")
+def export_attendance_excel(
+    attendance_date: Optional[str] = None,
+    class_name: Optional[str] = None,
+    role: Optional[str] = None,
+    target_ref: Optional[str] = None,
+):
+    data = list_attendance(
+        attendance_date=attendance_date,
+        class_name=class_name,
+        role=role,
+        target_ref=target_ref,
+    )
+    status_vi = {"present": "Có mặt", "late": "Đi muộn", "absent": "Vắng"}
+    df = pd.DataFrame(
+        [
+            {
+                "Ngày": data["attendance_date"],
+                "Mã HS": it["student_code"],
+                "Họ tên": it["full_name"],
+                "Lớp": it["class_name"],
+                "Trạng thái": status_vi.get(it["attendance_status"], it["attendance_status"]),
+                "Giờ điểm danh": it["check_in_time"] or "",
+                "Người ghi nhận": it["recorded_by"] or "",
+            }
+            for it in data["items"]
+        ]
+    )
+    output = io.BytesIO()
+    with pd.ExcelWriter(output, engine="openpyxl") as writer:
+        df.to_excel(writer, index=False, sheet_name="DiemDanh")
+        ws = writer.sheets["DiemDanh"]
+        for col in ws.columns:
+            max_len = max(len(str(cell.value or "")) for cell in col)
+            ws.column_dimensions[col[0].column_letter].width = min(max_len + 4, 36)
+    output.seek(0)
+    filename = f"DiemDanh_{data['attendance_date']}.xlsx"
+    return StreamingResponse(
+        output,
+        media_type="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        headers={"Content-Disposition": f"attachment; filename={filename}"},
+    )
 
 
 @app.get("/api/violations")
@@ -353,17 +646,21 @@ async def import_students(file: UploadFile = File(...)):
     conn = get_db()
     count = 0
     for _, row in df.iterrows():
+        code_val = str(row["MaHS"]).strip()
+        existing = conn.execute("SELECT face_descriptor FROM students WHERE student_code=?", (code_val,)).fetchone()
+        old_face = existing["face_descriptor"] if existing and existing["face_descriptor"] else ""
         conn.execute(
             """
-            INSERT OR REPLACE INTO students (student_code, full_name, class_name, grade, dob)
-            VALUES (?, ?, ?, ?, ?)
+            INSERT OR REPLACE INTO students (student_code, full_name, class_name, grade, dob, face_descriptor)
+            VALUES (?, ?, ?, ?, ?, ?)
         """,
             (
-                str(row["MaHS"]).strip(),
+                code_val,
                 str(row["HoTen"]).strip(),
                 str(row["Lop"]).strip(),
                 str(row["Khoi"]).strip(),
                 str(row.get("NgaySinh", "")),
+                old_face,
             ),
         )
         count += 1
@@ -486,7 +783,6 @@ def delete_user(user_id: int):
 
 @app.get("/api/admin/users-template-excel")
 def download_users_template():
-    """Tải file Excel mẫu để nhập hàng loạt tài khoản người dùng."""
     sample_rows = [
         {
             "TenDangNhap": "tovien2",
@@ -527,8 +823,8 @@ def download_users_template():
     df_sample = pd.DataFrame(sample_rows)
     df_guide = pd.DataFrame(
         [
-            {"MaVaiTro_HopLe": "tovien", "MoTa": "Tổ viên (Cờ đỏ quét thẻ)"},
-            {"MaVaiTro_HopLe": "totruong", "MoTa": "Tổ trưởng trực tuần (duyệt/hủy lỗi)"},
+            {"MaVaiTro_HopLe": "tovien", "MoTa": "Tổ viên (Cờ đỏ quét thẻ/mặt)"},
+            {"MaVaiTro_HopLe": "totruong", "MoTa": "Tổ trưởng trực tuần (duyệt/hủy lỗi, điểm danh)"},
             {"MaVaiTro_HopLe": "gvcn", "MoTa": "Giáo viên chủ nhiệm (cột PhamVi điền tên lớp, VD: 10A1)"},
             {"MaVaiTro_HopLe": "phuhuynh", "MoTa": "Phụ huynh học sinh (cột PhamVi điền Mã HS của con, VD: HS1001)"},
             {"MaVaiTro_HopLe": "giamhieu", "MoTa": "Ban Giám hiệu (xem báo cáo, xuất Excel)"},
@@ -556,23 +852,12 @@ def download_users_template():
 
 @app.post("/api/admin/import-users")
 async def import_users(file: UploadFile = File(...)):
-    """
-    Import hàng loạt tài khoản từ file Excel.
-    Các cột hỗ trợ:
-    - TenDangNhap (hoặc username)
-    - MatKhau (hoặc password - nếu để trống mặc định '123456')
-    - HoTen (hoặc full_name)
-    - VaiTro (hoặc role): tovien, totruong, gvcn, phuhuynh, giamhieu, admin
-      (cũng tự nhận diện tiếng Việt: 'Tổ viên', 'Tổ trưởng', 'Giáo viên chủ nhiệm', 'Phụ huynh', 'Ban Giám hiệu')
-    - PhamVi (hoặc target_ref): Tên lớp (với gvcn) hoặc Mã HS (với phuhuynh)
-    """
     contents = await file.read()
     try:
         df = pd.read_excel(io.BytesIO(contents))
     except Exception as exc:
         raise HTTPException(status_code=400, detail=f"Không đọc được file Excel: {exc}")
 
-    # Chuẩn hóa tên cột
     col_map = {}
     for col in df.columns:
         c_clean = str(col).strip().lower()
@@ -644,7 +929,6 @@ async def import_users(file: UploadFile = File(...)):
         if "password" in col_map:
             val_pw = str(row[col_map["password"]]).strip()
             if val_pw and val_pw.lower() != "nan":
-                # Xử lý trường hợp Excel đọc số mật khẩu thành '123456.0'
                 if val_pw.endswith(".0") and val_pw[:-2].isdigit():
                     val_pw = val_pw[:-2]
                 raw_pw = val_pw
